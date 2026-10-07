@@ -175,7 +175,7 @@ export class TestRunner {
         <button class="tap-target" data-target="L" aria-label="Left target">L</button>
         <button class="tap-target" data-target="R" aria-label="Right target">R</button>
       </div>
-      <p class="center"><span id="tapCount">0</span> taps</p>`);
+      <p class="center"><span id="tapCount">0</span> taps · <span class="muted">the timer starts with your first tap</span></p>`);
     const area = this.modal.querySelector('#tapArea');
     const events = [];
     let start = null;
