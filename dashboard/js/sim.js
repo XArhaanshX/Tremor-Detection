@@ -76,14 +76,21 @@ export class SimBand extends EventTarget {
     return 0.15 + (OFF_AMP_CM - 0.15) * (minutes - 150) / 90;
   }
 
+  // Days differ: some are worse overall, on some the dose wears off sooner.
+  dayTraits(t) {
+    const r = rng(Math.floor(midnight(t) / DAY_MS) * 31 + 7);
+    return { scale: 0.6 + 0.7 * r(), shiftMin: Math.round((r() - 0.5) * 70) };
+  }
+
   ampAt(t) {
+    const { scale, shiftMin } = this.dayTraits(t);
     const doses = this.dosesUpTo(t);
     const last = Math.max(-Infinity, ...doses);
-    const m = (t - last) / 60000;
-    if (m >= 30 || !isFinite(m)) return this.curve(m);
+    const m = (t - last) / 60000 + shiftMin;
+    if (m - shiftMin >= 30 || !isFinite(m)) return scale * this.curve(m);
     const before = Math.max(-Infinity, ...doses.filter((d) => d < last));
-    const startAmp = this.curve((last - before) / 60000);
-    return 0.15 + (startAmp - 0.15) * (1 - m / 30);  // dose kicking in over 30 min
+    const startAmp = scale * this.curve((last - before) / 60000 + shiftMin);
+    return 0.15 + (startAmp - 0.15) * (1 - (m - shiftMin) / 30);  // dose kicking in over 30 min
   }
 
   epochAt(seq) {
