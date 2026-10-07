@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TremorBand</title>
+  <meta name="description" content="All-day Parkinson's tremor monitoring from a wristband — live, offline, on your device.">
+  <meta name="theme-color" content="#2a78d6">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="28" height="28">
+      <span>TremorBand</span>
+    </div>
+    <div class="conn">
+      <span class="pill" id="connPill" data-state="disconnected"><span class="dot"></span><span id="connText">Not connected</span></span>
+      <span class="sub" id="syncText"></span>
+    </div>
+    <button class="btn primary" id="connectBtn">Connect band</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-view="live" aria-selected="true">Live</button>
+    <button role="tab" data-view="day">Day</button>
+    <button role="tab" data-view="tests">Tests</button>
+    <button role="tab" data-view="report">Report</button>
+    <button role="tab" data-view="settings">Settings</button>
+  </nav>
+
+  <main>
+    <!-- LIVE -->
+    <section class="view" id="view-live">
+      <div class="card onboarding" id="onboarding">
+        <h2>Welcome</h2>
+        <p>Wear the band snugly on the wrist of the more affected arm, switch it on, then connect.
+           It watches for the steady 4–6 beats-per-second shake of Parkinson's tremor all day and
+           keeps recording even when this device is out of range.</p>
+        <div class="row">
+          <button class="btn primary" data-action="connect">Connect band</button>
+          <button class="btn" data-action="demo">Try the demo (no band needed)</button>
+        </div>
+        <p class="muted small" id="btSupport"></p>
+      </div>
+
+      <div class="live-grid">
+        <div class="card hero" id="hero" data-sev="none">
+          <div class="hero-label">Tremor right now</div>
+          <div class="hero-row">
+            <div class="hero-num" id="heroNum">–</div>
+            <div>
+              <div class="hero-word" id="heroWord">Waiting for band</div>
+              <div class="hero-desc" id="heroDesc">Severity 0–4 on the same scale neurologists use (UPDRS)</div>
+            </div>
+          </div>
+          <div class="scale" aria-hidden="true">
+            <span data-s="0">0<br>Normal</span><span data-s="1">1<br>Slight</span><span data-s="2">2<br>Mild</span><span data-s="3">3<br>Moderate</span><span data-s="4">4<br>Severe</span>
+          </div>
+        </div>
+        <div class="tiles">
+          <div class="tile"><div class="tile-label">Shake rate</div><div class="tile-val" id="tFreq">–</div><div class="tile-hint">tremor band 4–6 Hz</div></div>
+          <div class="tile"><div class="tile-label">Shake size</div><div class="tile-val" id="tAmp">–</div><div class="tile-hint">estimated hand movement</div></div>
+          <div class="tile"><div class="tile-label">Beat strength</div><div class="tile-val" id="tRatio">–</div><div class="tile-hint">how narrow &amp; steady the beat is</div></div>
+          <div class="tile"><div class="tile-label">Arm movement</div><div class="tile-val" id="tAct">–</div><div class="tile-hint">normal, voluntary motion</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Severity — last 3 minutes</h3><span class="muted small">updates every second</span></div>
+        <div id="liveSevChart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Shake size (cm) — last 3 minutes</h3></div>
+        <div id="liveAmpChart"></div>
+      </div>
+    </section>
+
+    <!-- DAY -->
+    <section class="view" id="view-day" hidden>
+      <div class="day-nav">
+        <button class="btn icon" id="dayPrev" aria-label="Previous day">‹</button>
+        <h2 id="dayTitle">Today</h2>
+        <button class="btn icon" id="dayNext" aria-label="Next day">›</button>
+      </div>
+      <div class="tiles four" id="dayTiles"></div>
+      <div class="card">
+        <div class="card-head"><h3>Tremor through the day</h3><span class="muted small">average severity per 10 min · dashed lines = doses</span></div>
+        <div id="dayChart"></div>
+        <details class="table-toggle"><summary>Show as table</summary><div id="dayTable"></div></details>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>How each dose worked</h3></div>
+        <div id="dayDoses"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Tests this day</h3></div>
+        <div id="dayTests"></div>
+      </div>
+    </section>
+
+    <!-- TESTS -->
+    <section class="view" id="view-tests" hidden>
+      <p class="lead">Short check-ups that add to the all-day monitoring. Do them a few times a day — for example just before a dose and an hour after.</p>
+      <div class="test-grid" id="testCards"></div>
+      <div class="card">
+        <div class="card-head">
+          <h3>Trend</h3>
+          <select id="trendSelect" aria-label="Test to show"></select>
+        </div>
+        <div id="trendChart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Recent results</h3></div>
+        <div id="testHistory"></div>
+      </div>
+    </section>
+
+    <!-- REPORT -->
+    <section class="view" id="view-report" hidden>
+      <div class="report-head">
+        <h2>Report for the neurologist</h2>
+        <div class="row">
+          <select id="rangeSelect" aria-label="Date range">
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+          <button class="btn" id="printBtn">Print / save PDF</button>
+        </div>
+      </div>
+      <p class="muted print-only" id="reportMeta"></p>
+      <div class="tiles four" id="reportTiles"></div>
+      <div class="card">
+        <div class="card-head"><h3>A typical day</h3><span class="muted small">average severity by hour across the range</span></div>
+        <div id="patternChart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Day by day</h3></div>
+        <div id="reportDays"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Medication response</h3></div>
+        <div id="reportDoses"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Active tests</h3></div>
+        <div id="reportTests"></div>
+      </div>
+      <div class="card no-print">
+        <div class="card-head"><h3>Export raw data (CSV)</h3></div>
+        <div class="row">
+          <button class="btn" data-export="epochs">Tremor records</button>
+          <button class="btn" data-export="doses">Doses</button>
+          <button class="btn" data-export="tests">Test results</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section class="view" id="view-settings" hidden>
+      <div class="card">
+        <h3>Hand size</h3>
+        <label class="field">Wrist to middle of the palm: <strong id="leverVal">10 cm</strong>
+          <input type="range" id="leverInput" min="5" max="20" step="0.5" value="10">
+        </label>
+        <p class="muted small">The band measures how fast the wrist rotates; this length turns that into how far the hand moves (cm), which sets the 0–4 score.</p>
+        <label class="field">Band worn on
+          <select id="wristSelect"><option value="right">Right wrist</option><option value="left">Left wrist</option></select>
+        </label>
+      </div>
+      <div class="card">
+        <h3>Wristband</h3>
+        <table class="kv" id="deviceInfo"></table>
+      </div>
+      <div class="card">
+        <h3>Data on this device</h3>
+        <table class="kv" id="dataInfo"></table>
+        <div class="row">
+          <button class="btn danger" id="clearAppBtn">Delete all data in this app</button>
+          <button class="btn danger" id="eraseBandBtn">Erase band memory</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>About</h3>
+        <p class="small">All tremor analysis happens on the wristband (FFT on the ESP32). This app never sends data anywhere — it is stored only in this browser. Works offline once loaded.</p>
+        <p class="small"><strong>Not a medical device.</strong> Scores are estimates to discuss with your neurologist; don't change medication based on them alone.</p>
+      </div>
+    </section>
+  </main>
+
+  <button class="fab" id="doseBtn" aria-label="Log that I just took my medication">💊 Took my dose</button>
+
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true"><div class="modal-box"></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
