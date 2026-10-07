@@ -68,9 +68,10 @@ stores and runs the phone-based tapping test.
 3. FFT each axis and **add the three power spectra** — this makes the result
    independent of how the band is strapped on (and avoids the frequency-doubling
    you get from taking the magnitude of an oscillating rotation).
-4. Tremor *candidate* if, inside 4–6 Hz:
+4. Tremor *candidate* if, inside 4–6 Hz (all four must hold):
    - **narrow/strong:** the peak's main lobe holds ≥ 40 % of all power in 1–15 Hz, and is a true local peak;
-   - **big enough:** tremor angular-velocity amplitude ≥ 0.10 rad/s (well above sensor noise).
+   - **big enough:** tremor angular-velocity amplitude ≥ 0.10 rad/s (well above sensor noise);
+   - **steady:** the beat is about as strong in the first and second half of the window (not a single jerk).
 5. **Consistent:** confirmed only if the previous window was also a candidate at a similar frequency (±1 Hz).
 6. Amplitude: angular amplitude θ = ω / (2πf); hand displacement ≈ 2·θ·L (L = wrist-to-hand lever, default 10 cm, settable in the app).
 7. Severity uses the MDS-UPDRS tremor-amplitude bins: none → 0, < 1 cm → 1, 1–3 cm → 2, 3–10 cm → 3, ≥ 10 cm → 4.
