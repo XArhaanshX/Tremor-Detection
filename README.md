@@ -12,6 +12,7 @@ live in one platform.
 
 ## Docs
 - [User flow](docs/USER_FLOW.md) — what the patient does, start to finish
+- [First-time build guide](docs/BEGINNER_BUILD.md) — never done hardware? start here
 - [Hardware build guide](docs/HARDWARE.md) — parts, wiring, power & storage budget
 - [Software architecture](docs/ARCHITECTURE.md) — modules and the hardware-compliance checklist
 - [Algorithm](docs/ALGORITHM.md) — how tremor is told apart from normal movement
