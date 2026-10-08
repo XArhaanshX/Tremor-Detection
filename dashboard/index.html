@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>TremorBand</title>
   <meta name="description" content="All-day Parkinson's tremor monitoring from a wristband — live, offline, on your device.">
-  <meta name="theme-color" content="#2a78d6">
+  <meta name="theme-color" content="#3f7592">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
@@ -36,9 +36,8 @@
     <section class="view" id="view-live">
       <div class="card onboarding" id="onboarding">
         <h2>Welcome</h2>
-        <p>Wear the band snugly on the wrist of the more affected arm, switch it on, then connect.
-           It watches for the steady 4–6 beats-per-second shake of Parkinson's tremor all day and
-           keeps recording even when this device is out of range.</p>
+        <p>Wear the band on the wrist of the arm that shakes more, switch it on, then press Connect.
+           It checks for tremor all day and keeps recording even when this device is out of range.</p>
         <div class="row">
           <button class="btn primary" data-action="connect">Connect band</button>
           <button class="btn" data-action="demo">Try the demo (no band needed)</button>
@@ -69,7 +68,7 @@
       </div>
 
       <div class="card">
-        <div class="card-head"><h3>Severity — last 3 minutes</h3><span class="muted small">updates every second</span></div>
+        <div class="card-head"><h3>Severity — last 3 minutes</h3><span class="muted small">refreshes every few seconds</span></div>
         <div id="liveSevChart"></div>
       </div>
       <div class="card">
@@ -175,7 +174,7 @@
         <h3>Wristband</h3>
         <table class="kv" id="deviceInfo"></table>
       </div>
-      <div class="card">
+      <div class="card danger-zone">
         <h3>Data on this device</h3>
         <table class="kv" id="dataInfo"></table>
         <div class="row">
@@ -191,7 +190,7 @@
     </section>
   </main>
 
-  <button class="fab" id="doseBtn" aria-label="Log that I just took my medication">💊 Took my dose</button>
+  <button class="fab" id="doseBtn" aria-label="Log that I just took my medicine">I took my medicine</button>
 
   <div class="modal" id="modal" hidden role="dialog" aria-modal="true"><div class="modal-box"></div></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

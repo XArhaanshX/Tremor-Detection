@@ -39,10 +39,12 @@ export class Chart {
     if (!width) return;
     const height = opts.height;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+    }
     const g = canvas.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, width, height);
@@ -126,16 +128,24 @@ export class Chart {
     g.strokeStyle = color;
     g.lineWidth = 2;
     g.lineJoin = 'round';
-    g.beginPath();
-    let prev = null;
-    for (const p of s.points) {
-      if (p.y == null) { prev = null; continue; }  // gap
-      const x = this.xToPx(p.x), y = this.yToPx(p.y);
-      if (!prev || (s.maxGap && p.x - prev.x > s.maxGap)) g.moveTo(x, y);
-      else if (s.type === 'step') { g.lineTo(x, this.yToPx(prev.y)); g.lineTo(x, y); }
-      else g.lineTo(x, y);
-      prev = p;
-    }
+    g.lineCap = 'round';
+    const trace = (close) => {
+      g.beginPath();
+      let prev = null, start = null;
+      const finish = () => {
+        if (close && prev && start) { g.lineTo(prev.px, base); g.lineTo(start.px, base); g.closePath(); }
+      };
+      for (const p of s.points) {
+        if (p.y == null) { finish(); prev = start = null; continue; }  // gap
+        const cur = { px: this.xToPx(p.x), py: this.yToPx(p.y), x: p.x };
+        if (!prev || (s.maxGap && p.x - prev.x > s.maxGap)) { finish(); g.moveTo(cur.px, cur.py); start = cur; }
+        else if (s.type === 'step') { g.lineTo(cur.px, prev.py); g.lineTo(cur.px, cur.py); }
+        else g.lineTo(cur.px, cur.py);
+        prev = cur;
+      }
+      finish();
+    };
+    trace(false);
     g.stroke();
     if (s.dots) {
       g.fillStyle = color;

@@ -32,14 +32,14 @@ function toast(msg) {
   el.textContent = msg;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 3500);
+  toastTimer = setTimeout(() => (el.hidden = true), 6000);
 }
 
-function confirmModal(title, body, okLabel) {
+function confirmModal(title, body, okLabel, safe = false) {
   return new Promise((resolve) => {
     const m = $('#modal');
     m.querySelector('.modal-box').innerHTML = `<h2>${title}</h2><p>${body}</p>
-      <div class="modal-actions"><button class="btn" data-r="0">Cancel</button><button class="btn primary" data-r="1">${okLabel}</button></div>`;
+      <div class="modal-actions"><button class="btn ${safe ? '' : 'primary'}" data-r="0">Cancel</button><button class="btn ${safe ? 'primary' : 'danger'}" data-r="1">${okLabel}</button></div>`;
     m.hidden = false;
     m.querySelectorAll('[data-r]').forEach((b) => b.addEventListener('click', () => { m.hidden = true; resolve(b.dataset.r === '1'); }));
   });
@@ -125,13 +125,18 @@ function renderConn() {
 
 // ---------------------------------------------------------------- live view
 let sevChart, ampChart;
+let lastChartDraw = 0;
+const CHART_REFRESH_MS = 5000;
 
 function onLive(p) {
   const t = Date.now();
   app.lastLive = { ...p, t };
   app.live.push(app.lastLive);
   while (app.live.length && app.live[0].t < t - LIVE_SPAN_MS) app.live.shift();
-  if (app.view === 'live') { renderHero(); renderLiveCharts(); }
+  if (app.view === 'live') {
+    renderHero();
+    if (t - lastChartDraw > CHART_REFRESH_MS) { lastChartDraw = t; renderLiveCharts(); }  // slow redraw: no constant scrolling
+  }
 }
 
 function renderHero() {
@@ -175,7 +180,7 @@ function renderLiveCharts() {
     ariaLabel: `Severity over the last 3 minutes, now ${app.lastLive?.severity ?? 'unknown'}`,
   });
   const maxAmp = Math.max(2, ...app.live.map((p) => p.ampCm));
-  ampChart.opts.yMax = Math.ceil(maxAmp);
+  ampChart.opts.yMax = Math.max(ampChart.opts.yMax, Math.ceil(maxAmp / 2) * 2);  // only ever grows: no rescaling jumps
   ampChart.opts.yTicks = niceTicks(ampChart.opts.yMax);
   ampChart.set({
     ...base,
@@ -439,7 +444,9 @@ function init() {
   $('#connectBtn').addEventListener('click', () => (app.band ? disconnect() : connect('ble')));
   document.querySelector('[data-action=connect]').addEventListener('click', () => connect('ble'));
   document.querySelector('[data-action=demo]').addEventListener('click', () => connect('demo'));
-  $('#doseBtn').addEventListener('click', () => logDose());
+  $('#doseBtn').addEventListener('click', async () => {
+    if (await confirmModal('Log your medicine?', `Record that you took your medicine at ${fmtClock(Date.now())}.`, 'Yes, I took it', true)) logDose();
+  });
   $('#dayPrev').addEventListener('click', () => { app.dayOffset--; renderDay(); });
   $('#dayNext').addEventListener('click', () => { app.dayOffset = Math.min(0, app.dayOffset + 1); renderDay(); });
   $('#rangeSelect').addEventListener('change', renderReport);
