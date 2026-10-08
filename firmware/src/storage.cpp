@@ -31,7 +31,7 @@ bool RecordStore::begin(uint16_t boot) {
   if (!LittleFS.exists(kDir)) LittleFS.mkdir(kDir);
 
   Meta m{};
-  File f = LittleFS.open(kMetaPath, "r");
+  File f = LittleFS.exists(kMetaPath) ? LittleFS.open(kMetaPath, "r") : File();
   if (f && f.read((uint8_t*)&m, sizeof m) == sizeof m && m.magic == kMagic) {
     store_id_ = m.store_id;
     acked_ = m.acked;
@@ -153,6 +153,7 @@ void RecordStore::eraseAll() {
 
 void RecordStore::loadBoots() {
   boots_.clear();
+  if (!LittleFS.exists(kBootsPath)) return;  // clock never set yet
   File f = LittleFS.open(kBootsPath, "r");
   if (!f) return;
   BootTime b;
