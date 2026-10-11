@@ -6,7 +6,7 @@
 #pragma once
 #include <stdint.h>
 
-#define PROTO_VERSION 1
+#define PROTO_VERSION 2
 
 #define UUID_SERVICE "d2e60001-ed8b-45e3-b151-051e61e017ff"
 #define UUID_LIVE    "d2e60002-ed8b-45e3-b151-051e61e017ff"  // notify: LivePacket, 1/s
@@ -23,6 +23,9 @@ enum : uint8_t {
   CMD_TEST_START = 0x10,  // [cmd, u8 test_type, u16 duration_s]
   CMD_TEST_ABORT = 0x11,  // [cmd]
   CMD_SET_LEVER  = 0x20,  // [cmd, u16 lever_mm]  wrist-to-hand lever for amplitude
+  CMD_DOSE       = 0x21,  // [cmd, u32 unix_seconds]  a dose logged in the app
+  CMD_SET_WEAROFF = 0x22, // [cmd, u16 warn_after_min, u16 typical_min]  learned in the app; 0 = unknown
+  CMD_ALERT_DISMISS = 0x23, // [cmd]  patient acknowledged the wearing-off warning
   CMD_ERASE      = 0x7F,  // [cmd, 0xA5, 0x5A]  wipe stored records
 };
 
@@ -60,6 +63,7 @@ enum : uint8_t {
   REC_GAP        = 1 << 3,
   REC_SIM        = 1 << 4,
   REC_TEST       = 1 << 5,  // an active test ran during this epoch
+  REC_ALERT      = 1 << 6,  // a wearing-off warning started during this epoch
 };
 
 // StatusPacket.flags
@@ -70,6 +74,8 @@ enum : uint8_t {
   ST_SIM         = 1 << 3,
   ST_TEST        = 1 << 4,
   ST_SYNCING     = 1 << 5,
+  ST_ALERT       = 1 << 6,  // wearing-off warning active
+  ST_ALERT_EARLY = 1 << 7,  // ...because tremor is already back (else: usual wear-off time reached)
 };
 
 // Records characteristic markers (5 bytes, distinguished from records by length)

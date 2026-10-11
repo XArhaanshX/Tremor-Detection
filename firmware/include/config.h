@@ -2,7 +2,7 @@
 // See docs/HARDWARE.md and docs/ARCHITECTURE.md (section 8) before changing anything.
 #pragma once
 
-#define FW_VERSION 1
+#define FW_VERSION 2
 
 // ---------------------------------------------------------------- pins
 #if defined(BOARD_XIAO_ESP32S3)
@@ -12,6 +12,7 @@
   #define PIN_LED       21   // onboard orange user LED
   #define LED_ACTIVE_LOW 1
   #define PIN_BUTTON    0    // onboard BOOT button
+  #define PIN_MOTOR     -1   // optional coin vibration motor via NPN transistor, e.g. 2 (D1)
 #else  // generic ESP32-WROOM dev board (bench prototype)
   #define PIN_I2C_SDA   21
   #define PIN_I2C_SCL   22
@@ -19,6 +20,7 @@
   #define PIN_LED       2
   #define LED_ACTIVE_LOW 0
   #define PIN_BUTTON    0
+  #define PIN_MOTOR     -1   // optional vibration motor, e.g. 25
 #endif
 
 #define BATT_DIVIDER  2.0f   // 100k/100k
@@ -46,6 +48,10 @@
 #define QUEUE_MAX_SEGS    128   // 655 KB cap -> ~11 days at 30 s epochs
 #define SYNC_BATCH        32    // records per batch before waiting for ACK
 #define SYNC_PACE_MS      6     // gap between notifications inside a batch
+
+// ---------------------------------------------------------------- wearing-off warning
+// Alert = LED double-blink every 3 s while active; plus motor pulses if PIN_MOTOR >= 0.
+#define ALERT_REPEAT_MIN  5     // repeat the motor pattern every 5 min while the alert is active
 
 // ---------------------------------------------------------------- tests
 #define TEST_MAX_SECONDS  60

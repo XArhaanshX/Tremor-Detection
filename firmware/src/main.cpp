@@ -8,6 +8,7 @@
 #include "config.h"
 #include "dsp/pronsup.h"
 #include "dsp/tremor.h"
+#include "dsp/wearoff.h"
 #include "imu.h"
 #include "protocol.h"
 #include "storage.h"
@@ -29,11 +30,13 @@ static RecordStore store;
 static dsp::TremorDetector detector;
 static dsp::WindowAggregator epoch;
 static dsp::WindowAggregator testAgg;
+static dsp::WearOffMonitor wearoff;
 
 static bool imuOk = false;
 static uint16_t bootCount = 0;
 static uint16_t leverMm = LEVER_MM_DEFAULT;
 static bool timeSynced = false;
+static int64_t unixOffsetS = 0;  // unix - uptime, valid once timeSynced
 
 // sliding window (ring buffer) of physical-unit samples
 static float ringG[3][WINDOW_N], ringA[3][WINDOW_N];
@@ -44,7 +47,7 @@ static uint32_t windowCount = 0;
 
 // epoch bookkeeping
 static uint32_t epochStartMs = 0;
-static bool buttonInEpoch = false, testInEpoch = false;
+static bool buttonInEpoch = false, testInEpoch = false, alertInEpoch = false;
 
 // battery
 static uint8_t batteryPct = 255;
@@ -104,7 +107,9 @@ static void sendStatus() {
   s.fw = FW_VERSION;
   s.flags = (timeSynced ? ST_TIME_SYNCED : 0) | (imuOk ? ST_IMU_OK : 0) |
             (store.ok() ? ST_STORAGE_OK : 0) | (kSim ? ST_SIM : 0) | (testType ? ST_TEST : 0) |
-            (syncing ? ST_SYNCING : 0);
+            (syncing ? ST_SYNCING : 0) |
+            (wearoff.active() != dsp::AlertReason::None ? ST_ALERT : 0) |
+            (wearoff.active() == dsp::AlertReason::Early ? ST_ALERT_EARLY : 0);
   s.battery_pct = batteryPct;
   s.battery_mv = batteryMv;
   s.boot = bootCount;
@@ -208,6 +213,7 @@ static void analyzeWindow() {
   gapPending = false;
   windowCount++;
   epoch.add(r);
+  wearoff.onWindow(millis(), r.confirmed);
   if (testType == TEST_REST_TREMOR || testType == TEST_POSTURAL_TREMOR) testAgg.add(r);
 
   LivePacket p{};
@@ -291,13 +297,14 @@ static void closeEpoch() {
   rec.amp_mmx10 = clampTo<uint16_t>(epoch.ampMeanCm() * 100);
   rec.amp_max_mm = clampTo<uint8_t>(epoch.ampMaxCm() * 10);
   rec.flags = (buttonInEpoch ? REC_BUTTON : 0) | (epoch.anyHighFreq() ? REC_HIGHFREQ : 0) |
-              (epoch.anyGap() ? REC_GAP : 0) | (kSim ? REC_SIM : 0) | (testInEpoch ? REC_TEST : 0);
+              (epoch.anyGap() ? REC_GAP : 0) | (kSim ? REC_SIM : 0) | (testInEpoch ? REC_TEST : 0) |
+              (alertInEpoch ? REC_ALERT : 0);
   store.append(rec);
   Serial.printf("[epoch] #%lu tremor %u%% sev max %u mean %.2f amp %.1f cm (pending %lu)\n",
                 (unsigned long)rec.seq, rec.tremor_pct, rec.sev_max, rec.sev_mean_x50 / 50.0f,
                 rec.amp_mmx10 / 100.0f, (unsigned long)store.pending());
   epoch.reset();
-  buttonInEpoch = testInEpoch = false;
+  buttonInEpoch = testInEpoch = alertInEpoch = false;
   doneSent = false;  // there is something new to sync
   readBattery();
   sendStatus();
@@ -339,6 +346,55 @@ static void serviceSync() {
   }
 }
 
+// ---------------------------------------------------------------- wearing-off warning
+static void noteDose(int64_t t_ms) {
+  wearoff.onDose(t_ms);
+  if (timeSynced) prefs.putUInt("doseUnix", (uint32_t)(unixOffsetS + t_ms / 1000));
+  Serial.printf("[wearoff] dose at %lld s since boot\n", (long long)(t_ms / 1000));
+}
+
+// A dose taken before a reboot is remembered in NVS as unix time and restored once
+// the phone sets the clock again.
+static void restoreLastDose() {
+  uint32_t doseUnix = prefs.getUInt("doseUnix", 0);
+  if (doseUnix && !wearoff.hasDose()) wearoff.onDose(((int64_t)doseUnix - unixOffsetS) * 1000);
+}
+
+static void motor(bool on) {
+  if (PIN_MOTOR >= 0) digitalWrite(PIN_MOTOR, on ? HIGH : LOW);
+}
+
+// Non-blocking motor pattern: 3 x (400 ms on, 300 ms off), repeated every ALERT_REPEAT_MIN.
+static uint32_t motorPatternStartMs = 0, lastMotorPatternMs = 0;
+static bool motorPatternRunning = false;
+
+static void startMotorPattern() {
+  motorPatternStartMs = lastMotorPatternMs = millis();
+  motorPatternRunning = true;
+}
+
+static void serviceAlert() {
+  dsp::AlertReason started = wearoff.tick(millis());
+  if (started != dsp::AlertReason::None) {
+    alertInEpoch = true;
+    startMotorPattern();
+    Serial.printf("[wearoff] ALERT: %s\n", started == dsp::AlertReason::Early
+                                              ? "tremor is back earlier than usual"
+                                              : "dose usually wears off about now");
+    sendStatus();
+  }
+  if (wearoff.active() == dsp::AlertReason::None) {
+    if (motorPatternRunning) { motorPatternRunning = false; motor(false); }
+    return;
+  }
+  if (!motorPatternRunning && millis() - lastMotorPatternMs >= ALERT_REPEAT_MIN * 60000u) startMotorPattern();
+  if (motorPatternRunning) {
+    uint32_t el = millis() - motorPatternStartMs;
+    if (el >= 2100) { motorPatternRunning = false; motor(false); }
+    else motor(el % 700 < 400);
+  }
+}
+
 // ---------------------------------------------------------------- commands
 static uint32_t u32At(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 
@@ -348,7 +404,9 @@ static void handleCommand(const Command& c) {
       if (c.len >= 5) {
         uint32_t unix = u32At(c.data + 1);
         store.setTimeOffset(unix - uptimeS());
+        unixOffsetS = (int64_t)unix - uptimeS();
         timeSynced = true;
+        restoreLastDose();
         Serial.printf("[time] synced, unix=%lu\n", (unsigned long)unix);
       }
       break;
@@ -381,6 +439,23 @@ static void handleCommand(const Command& c) {
         }
       }
       break;
+    case CMD_DOSE:
+      if (c.len >= 5 && timeSynced) noteDose(((int64_t)u32At(c.data + 1) - unixOffsetS) * 1000);
+      break;
+    case CMD_SET_WEAROFF:
+      if (c.len >= 5) {
+        uint16_t warn = c.data[1] | (c.data[2] << 8), typ = c.data[3] | (c.data[4] << 8);
+        if (warn <= 600 && typ <= 600) {
+          wearoff.setModel(warn, typ);
+          if (prefs.getUShort("woWarn", 0) != warn) prefs.putUShort("woWarn", warn);
+          if (prefs.getUShort("woTyp", 0) != typ) prefs.putUShort("woTyp", typ);
+          Serial.printf("[wearoff] model: warn after %u min, usually %u min\n", warn, typ);
+        }
+      }
+      break;
+    case CMD_ALERT_DISMISS:
+      wearoff.dismiss();
+      break;
     case CMD_ERASE:
       if (c.len >= 3 && c.data[1] == 0xA5 && c.data[2] == 0x5A) {
         store.eraseAll();
@@ -407,6 +482,8 @@ static void serviceButton() {
     last = level;
     if (!level) {  // pressed: patient marks "took my medication"
       buttonInEpoch = true;
+      noteDose(millis());
+      sendStatus();
       Serial.println("[button] medication marked");
       for (int i = 0; i < 3; i++) {
         led(true);
@@ -420,6 +497,11 @@ static void serviceButton() {
 
 static void serviceLed() {
   // short blink: every 2 s while waiting for a phone, every 10 s when connected
+  if (wearoff.active() != dsp::AlertReason::None) {  // double blink every 3 s
+    uint32_t ph = millis() % 3000;
+    led(ph < 150 || (ph >= 300 && ph < 450));
+    return;
+  }
   uint32_t period = ble::connected() ? 10000 : 2000;
   led(millis() % period < 15);
 }
@@ -432,12 +514,15 @@ void setup() {
   if (PIN_LED >= 0) pinMode(PIN_LED, OUTPUT);
   led(false);
   pinMode(PIN_BUTTON, INPUT_PULLUP);
+  if (PIN_MOTOR >= 0) pinMode(PIN_MOTOR, OUTPUT);
+  motor(false);
 
   prefs.begin("band", false);
   bootCount = prefs.getUShort("boot", 0) + 1;
   prefs.putUShort("boot", bootCount);
   leverMm = prefs.getUShort("lever", LEVER_MM_DEFAULT);
   detector.setLeverMeters(leverMm / 1000.0f);
+  wearoff.setModel(prefs.getUShort("woWarn", 0), prefs.getUShort("woTyp", 0));
   Serial.printf("\n[boot] tremor band fw %d, boot #%u, lever %u mm%s\n", FW_VERSION, bootCount,
                 leverMm, kSim ? ", SIMULATED IMU" : "");
 
@@ -476,6 +561,7 @@ void loop() {
   serviceTest();
   serviceSync();
   serviceButton();
+  serviceAlert();
   serviceLed();
   if (ble::connected() && millis() - lastStatusMs > 5000) sendStatus();
   delay(2);
