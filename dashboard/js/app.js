@@ -195,7 +195,7 @@ function renderLiveCharts() {
   });
   const maxAmp = Math.max(2, ...app.live.map((p) => p.ampCm));
   ampChart.opts.yMax = Math.max(ampChart.opts.yMax, Math.ceil(maxAmp / 2) * 2);  // only ever grows: no rescaling jumps
-  ampChart.opts.yTicks = niceTicks(ampChart.opts.yMax);
+  ampChart.opts.yTicks = niceTicks(ampChart.opts.yMax).filter((v) => v <= ampChart.opts.yMax);
   ampChart.set({
     ...base,
     series: [{ type: 'line', color: '--series-1', points: app.live.map((p) => ({ x: p.t, y: p.tremor ? p.ampCm : 0, p })), maxGap: 5000 }],
@@ -204,10 +204,14 @@ function renderLiveCharts() {
   });
 }
 
+// ~5 round ticks from 0 to at least max (steps of 1, 2 or 5 x 10^n): works for
+// severities (0-4), taps/s, percentages and reaction times in ms alike
 function niceTicks(max) {
-  const step = max <= 4 ? 1 : max <= 10 ? 2 : 5;
+  const raw = Math.max(max, 1e-9) / 5;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw);
   const out = [];
-  for (let v = 0; v <= max; v += step) out.push(v);
+  for (let v = 0; v < max + step * 0.999; v += step) out.push(+v.toFixed(6));
   return out;
 }
 
@@ -487,9 +491,9 @@ async function renderTests() {
   const pts = tests.filter((t) => t.kind === kind).sort((a, b) => a.t - b.t)
     .map((t) => ({ x: t.t, y: headline(kind, t.result).value, t }));
   const unit = pts[0] ? headline(kind, pts[0].t.result).unit : '';
-  const maxY = kind === 'rest' || kind === 'postural' ? 4 : Math.max(1, Math.ceil(Math.max(...pts.map((p) => p.y), 0) * 1.2));
-  trendChart.opts.yMax = maxY;
-  trendChart.opts.yTicks = niceTicks(maxY);
+  const ticks = kind === 'rest' || kind === 'postural' ? [0, 1, 2, 3, 4] : niceTicks(Math.max(1, ...pts.map((p) => p.y ?? 0)) * 1.15);
+  trendChart.opts.yMax = ticks.at(-1);
+  trendChart.opts.yTicks = ticks;
   const xMin = pts.length ? Math.min(pts[0].x, Date.now() - 7 * R.DAY_MS) : Date.now() - 7 * R.DAY_MS;
   trendChart.set({
     xMin, xMax: Date.now(),
@@ -570,9 +574,9 @@ async function renderReport() {
   const byKind = TESTS.map((t) => {
     const list = tests.filter((x) => x.kind === t.id).sort((a, b) => a.t - b.t);
     if (!list.length) return '';
-    const vals = list.map((x) => headline(t.id, x.result).value);
-    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
-    return `<tr><td>${t.name}</td><td>${list.length}</td><td>${avg.toFixed(2)} ${headline(t.id, list[0].result).unit}</td><td>${headline(t.id, list.at(-1).result).text}</td></tr>`;
+    const vals = list.map((x) => headline(t.id, x.result).value).filter((v) => v != null && isFinite(v));
+    const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2) : '—';
+    return `<tr><td>${t.name}</td><td>${list.length}</td><td>${avg} ${headline(t.id, list[0].result).unit}</td><td>${headline(t.id, list.at(-1).result).text}</td></tr>`;
   }).join('');
   $('#reportTests').innerHTML = byKind ? `<table class="data"><tr><th>Test</th><th>Times done</th><th>Average</th><th>Latest</th></tr>${byKind}</table>${testsByDoseHtml(tests)}` : '<p class="empty">No active tests in this range.</p>';
 }
@@ -606,7 +610,7 @@ function testsByDoseHtml(tests) {
     const list = tests.filter((x) => x.kind === t.id && x.context?.minSinceDose != null && x.context.minSinceDose < 6 * 60);
     if (list.length < 2) return '';
     const cells = buckets.map(([a, b]) => {
-      const vals = list.filter((x) => x.context.minSinceDose >= a && x.context.minSinceDose < b).map((x) => headline(t.id, x.result).value);
+      const vals = list.filter((x) => x.context.minSinceDose >= a && x.context.minSinceDose < b).map((x) => headline(t.id, x.result).value).filter((v) => v != null && isFinite(v));
       return `<td>${vals.length ? `${(vals.reduce((p, q) => p + q, 0) / vals.length).toFixed(1)} <small class="muted">(${vals.length})</small>` : '—'}</td>`;
     }).join('');
     return `<tr><td>${t.name} <small class="muted">${headline(t.id, list[0].result).unit}</small></td>${cells}</tr>`;
@@ -747,7 +751,7 @@ function init() {
       toast('Band memory erased');
     }
   });
-  $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') runner.close(); });
+  $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' && !runner.running) runner.close(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) runner.close(); });
   window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 

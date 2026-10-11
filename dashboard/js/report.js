@@ -114,9 +114,13 @@ export function dosesCsv(doses) {
   return csv(doses.map((d) => ({ time: new Date(d.t).toISOString(), source: d.source })), ['time', 'source']);
 }
 
+const flatten = (o, pre = '') => Object.entries(o ?? {}).reduce((acc, [k, v]) =>
+  (v && typeof v === 'object' && !Array.isArray(v) ? Object.assign(acc, flatten(v, `${pre}${k}.`)) : Object.assign(acc, { [`${pre}${k}`]: v })), {});
+
 export function testsCsv(tests) {
-  const keys = [...new Set(tests.flatMap((t) => Object.keys(t.result)))].filter((k) => !['type', 'state'].includes(k));
-  const rows = tests.map((t) => ({ time: new Date(t.t).toISOString(), test: t.kind, passiveSeverity: t.context?.severity, minSinceDose: t.context?.minSinceDose, ...t.result }));
+  const flat = tests.map((t) => flatten(t.result));
+  const keys = [...new Set(flat.flatMap((r) => Object.keys(r)))].filter((k) => !['type', 'state'].includes(k));
+  const rows = tests.map((t, i) => ({ time: new Date(t.t).toISOString(), test: t.kind, passiveSeverity: t.context?.severity, minSinceDose: t.context?.minSinceDose, ...flat[i] }));
   return csv(rows, ['time', 'test', 'passiveSeverity', 'minSinceDose', ...keys]);
 }
 
