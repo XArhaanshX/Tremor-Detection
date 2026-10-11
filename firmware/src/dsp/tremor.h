@@ -24,7 +24,7 @@ struct TremorConfig {
   float lever_m = 0.10f;         // wrist-to-hand lever arm for displacement
   int lobe_bins = 2;             // Hann main lobe half-width in bins
   // --- kinematic attribution (ELA): is the beat made by the wrist or by the arm? ---
-  float max_lever_eff_m = 0.12f;   // effective lever arm above this = arm-driven rhythm
+  float max_lever_eff_m = 0.15f;   // above this the beat is arm-driven (PADS: 90% of PD rest tremor <= 13.8 cm)
   float min_axis_linearity = 0.0f; // 1 = rotation about one fixed axis; 0 = disabled
   float low_lo_hz = 0.5f;          // "voluntary movement" band used by baseline gates
   float low_hi_hz = 3.0f;

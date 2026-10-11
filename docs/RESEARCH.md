@@ -72,7 +72,7 @@ Implemented in `firmware/src/dsp/tremor.cpp`, documented in [ALGORITHM.md](ALGOR
    * `lever_eff = accel_amp / (omega_amp · 2πf)` from the accelerometer and gyroscope
      spectra in the same bins;
    * `axis_linearity = λ₁ / trace` of the real cross-spectral matrix of the three gyro axes.
-3. A beat counts as tremor only if `lever_eff ≤ 12 cm` (wrist-generated). Beats that fail are
+3. A beat counts as tremor only if `lever_eff ≤ 15 cm` (wrist-generated). Beats that fail are
    reported as **"rhythmic arm movement"** instead of silently dropped — the band can tell the
    app *why* it is not counting something.
 

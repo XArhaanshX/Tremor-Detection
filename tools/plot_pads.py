@@ -43,8 +43,8 @@ def main():
         if len(v):
             ax.hist(v.clip(0, 40), bins=bins, density=True, histtype="step", linewidth=2, color=c,
                     label=f"{label}  (n={len(v)}, median {v.median():.1f} cm)")
-    ax.axvline(12, color=INK, linewidth=1, linestyle="--")
-    ax.text(12.4, ax.get_ylim()[1] * 0.95, "12 cm gate", fontsize=8, color=INK, va="top")
+    ax.axvline(15, color=INK, linewidth=1, linestyle="--")
+    ax.text(15.4, ax.get_ylim()[1] * 0.95, "15 cm gate", fontsize=8, color=INK, va="top")
     ax.set_xlabel("effective lever arm of the 4–6 Hz beat (cm)", color=MUTED)
     ax.set_ylabel("density", color=MUTED)
     ax.set_title("Where is the oscillation coming from? Wrist-generated beats sit near the sensor", fontsize=10, color=INK, loc="left")

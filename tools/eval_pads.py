@@ -44,6 +44,20 @@ def group_of(condition: str) -> str:
     return "DD"  # differential diagnoses: essential tremor, atypical/secondary parkinsonism, MS
 
 
+def subtype_of(p):
+    """PADS disease_comment gives the clinical PD subtype (German IPS = idiopathic PD)."""
+    c = (p.get("disease_comment") or "").lower()
+    if group_of(p.get("condition", "")) != "PD":
+        return ""
+    if "tremordominant" in c or "tremor-dominant" in c or "tremor dominant" in c:
+        return "tremor-dominant"
+    if "mixed" in c:
+        return "mixed"
+    if "akinetic" in c or "hypokinetic" in c or "rigid" in c:
+        return "akinetic-rigid"
+    return "unspecified"
+
+
 def run_cli(cli, path, hop):
     with open(path, "rb") as f:
         out = subprocess.run([cli, "--cols", "t,ax,ay,az,gx,gy,gz", "--hop", str(hop)],
@@ -75,8 +89,10 @@ def main():
     for fn in os.listdir(os.path.join(args.pads, "patients")):
         with open(os.path.join(args.pads, "patients", fn)) as f:
             p = json.load(f)
+        p["subtype"] = subtype_of(p)
         patients[p["id"]] = p
     print(f"{len(patients)} subjects; conditions:", pd.Series([p["condition"] for p in patients.values()]).value_counts().to_dict())
+    print("PD subtypes:", pd.Series([p["subtype"] for p in patients.values() if group_of(p["condition"]) == "PD"]).value_counts().to_dict())
 
     ts_dir = os.path.join(args.pads, "movement", "timeseries")
     files = sorted(f for f in os.listdir(ts_dir) if f.endswith(".txt") and os.path.getsize(os.path.join(ts_dir, f)) > 1000)
@@ -101,6 +117,7 @@ def main():
         p = patients.get(sid, {})
         df["condition"] = p.get("condition", "?")
         df["group"] = group_of(p.get("condition", "?"))
+        df["subtype"] = p.get("subtype", "")
         df["dominant_side"] = (wrist.replace("Wrist", "").lower() == p.get("handedness", "?"))
         return df.iloc[1:]  # first window has no predecessor for consistency
 
@@ -154,6 +171,20 @@ def main():
         P(f"| {g} | {n} | " + " | ".join(f"{100*sub.groupby('subject')[r].any().mean():.1f}%" for r in rules) + " |")
     P("")
 
+    # 3b. Clinical subtype check: tremor-dominant PD should light up far more than akinetic-rigid PD
+    P("## Parkinson's clinical subtype (from the neurologist's diagnosis comment) vs rest-task detections\n")
+    P("Tremor-dominant patients should be detected far more often than akinetic-rigid ones; a detector that "
+      "cannot tell them apart is reacting to something other than tremor.\n")
+    P("| PD subtype | subjects | rest windows | " + " | ".join(f"{r} (windows)" for r in rules) + " | " + " | ".join(f"{r} (subjects)" for r in rules) + " |")
+    P("|---|---:|---:|" + "---:|" * (2 * len(rules)))
+    for st in ["tremor-dominant", "mixed", "akinetic-rigid", "unspecified"]:
+        sub = W[(W.group == "PD") & (W.subtype == st) & W.task.isin(REST)]
+        if not len(sub):
+            continue
+        P(f"| {st} | {sub.subject.nunique()} | {len(sub)} | " + " | ".join(f"{100*sub[r].mean():.2f}%" for r in rules) + " | " +
+          " | ".join(f"{100*sub.groupby('subject')[r].any().mean():.1f}%" for r in rules) + " |")
+    P("")
+
     # 4. What the kinematic attribution sees
     P("## Effective lever arm of detected beats\n")
     beats = W[W.beat]
@@ -189,7 +220,7 @@ def main():
     P("## Lever-arm threshold sweep (spectral rule + lever gate only)\n")
     P("| max lever (cm) | HC windows flagged | PD rest windows flagged | HC kinetic flagged |")
     P("|---:|---:|---:|---:|")
-    for thr in [4, 6, 8, 10, 12, 15, 20, 30, 1000]:
+    for thr in [4, 6, 8, 10, 12, 15, 18, 20, 25, 30, 1000]:
         W["_g"] = W.beat & (W.lever * 100 <= thr)
         flag = pd.Series(False, index=W.index)
         for (_, _, _), grp in W.groupby(["subject", "task", "wrist"], sort=False):

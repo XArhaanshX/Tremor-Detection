@@ -28,7 +28,7 @@ and gravity doesn't contaminate.
    `lever_eff = accel_amp / (omega_amp · 2πf)` gives the distance from the sensor to the
    rotation axis. Rest tremor rotates the hand about the wrist/forearm, a few cm from a
    wrist-worn sensor; brushing, washing, stirring and scrubbing swing the forearm about the
-   elbow/shoulder, 20–40 cm away. Beats with `lever_eff > 12 cm` are reported as *rhythmic arm
+   elbow/shoulder, 20–40 cm away. Beats with `lever_eff > 15 cm` are reported as *rhythmic arm
    movement* and not counted. A second cue, `axis_linearity` (principal-axis fraction of the
    beat's 3×3 cross-spectral matrix), is ≈ 1 for a single-joint oscillation and ≈ 0.5 for
    circular motion such as stirring; it is exported for evaluation and can gate too.
