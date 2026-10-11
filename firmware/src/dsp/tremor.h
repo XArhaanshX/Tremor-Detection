@@ -23,6 +23,11 @@ struct TremorConfig {
   float min_steadiness = 0.5f;   // beat amplitude 1st half vs 2nd half of the window
   float lever_m = 0.10f;         // wrist-to-hand lever arm for displacement
   int lobe_bins = 2;             // Hann main lobe half-width in bins
+  // --- kinematic attribution (ELA): is the beat made by the wrist or by the arm? ---
+  float max_lever_eff_m = 0.12f;   // effective lever arm above this = arm-driven rhythm
+  float min_axis_linearity = 0.0f; // 1 = rotation about one fixed axis; 0 = disabled
+  float low_lo_hz = 0.5f;          // "voluntary movement" band used by baseline gates
+  float low_hi_hz = 3.0f;
 };
 
 struct WindowResult {
@@ -38,6 +43,12 @@ struct WindowResult {
   float steadiness = 0;     // min/max of the beat amplitude in the two window halves
   float amp_cm = 0;         // estimated peak-to-peak hand displacement, cm
   float activity_mg = 0;    // accel-magnitude RMS, milli-g
+  // kinematic attribution of the beat (valid when freq_hz > 0)
+  float accel_amp = 0;      // linear-acceleration amplitude at the beat, m/s^2
+  float lever_eff_m = 0;    // accel_amp / (omega_amp * 2*pi*f): where the rotation axis is
+  float axis_linearity = 0; // fraction of beat rotation energy on its principal axis
+  float lowband_omega = 0;  // RMS angular velocity in 0.5-3 Hz (voluntary movement)
+  bool arm_driven = false;  // beat was strong+narrow+steady but failed the lever test
   uint8_t severity = 0;     // 0..4
 };
 
@@ -74,6 +85,9 @@ class TremorDetector {
   float re_[FFT::kMaxN];
   float im_[FFT::kMaxN];
   float psd_[FFT::kMaxN / 2 + 1];
+  float apsd_[FFT::kMaxN / 2 + 1];            // summed accelerometer spectrum
+  float gre_[3][FFT::kMaxN / 2 + 1];          // per-axis gyro spectrum (for axis linearity)
+  float gim_[3][FFT::kMaxN / 2 + 1];
   bool prev_candidate_ = false;
   float prev_freq_ = 0;
 };
