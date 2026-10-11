@@ -23,11 +23,20 @@ and gravity doesn't contaminate.
    | Strong | tremor angular-velocity amplitude ≥ **0.10 rad/s** | ~0.6 mm hand movement; far above sensor noise (0.005 °/s/√Hz) |
    | In band | true local maximum inside 4–6 Hz | 2–3 Hz is voluntary shaking / other tremors; > 6.5 Hz is essential/physiological |
    | Steady | beat amplitude in 1st vs 2nd half of the window ≥ **0.5** ratio | a single jerk or 1-s burst is not "repeating over and over" |
-5. **Consistent**: *confirmed* only if the previous window was also a candidate within ±1 Hz. Onset latency ≈ 3.5 s.
-6. **Amplitude** (Parseval): mean-square of the band-limited angular velocity
+5. **Wrist-generated, not arm-generated** (our contribution — see [RESEARCH.md](RESEARCH.md)):
+   the accelerometer spectrum is computed in the same bins as the gyroscope spectrum and
+   `lever_eff = accel_amp / (omega_amp · 2πf)` gives the distance from the sensor to the
+   rotation axis. Rest tremor rotates the hand about the wrist/forearm, a few cm from a
+   wrist-worn sensor; brushing, washing, stirring and scrubbing swing the forearm about the
+   elbow/shoulder, 20–40 cm away. Beats with `lever_eff > 12 cm` are reported as *rhythmic arm
+   movement* and not counted. A second cue, `axis_linearity` (principal-axis fraction of the
+   beat's 3×3 cross-spectral matrix), is ≈ 1 for a single-joint oscillation and ≈ 0.5 for
+   circular motion such as stirring; it is exported for evaluation and can gate too.
+6. **Consistent**: *confirmed* only if the previous window was also a candidate within ±1 Hz. Onset latency ≈ 3.5 s.
+7. **Amplitude** (Parseval): mean-square of the band-limited angular velocity
    `ms = 2·Σ|X_k|² / (N·Σw²)` over the lobe → `ω = √(2·ms)`.
    Angular amplitude `θ = ω / (2πf)`; hand displacement peak-to-peak `≈ 2·θ·L`, L = wrist-to-palm lever (default 10 cm, set in the app).
-7. **Severity** — MDS-UPDRS 3.17 amplitude bins:
+8. **Severity** — MDS-UPDRS 3.17 amplitude bins:
 
    | Displacement | Score |
    |---|---|
@@ -49,6 +58,14 @@ Oscillations that pass the same tests at **6.5–12 Hz** are flagged (`HIGHFREQ`
 | Tremor + fidgeting / + slow arm movement | 100 % detected |
 | Natural tremor (±40 % amplitude, 4.6–5.4 Hz drift) | 100 % detected, amplitude 2.01 vs 2.0 cm |
 | 1.2 s burst | not confirmed |
+| Brushing (elbow 28 cm), washing (25 cm), scrubbing (shoulder 40 cm), shaking a bottle (22 cm), stirring (3 cm circle) | gyro-only spectral rule: 100 % false positives; ours: 0 % — effective lever reads 0.21–0.38 m |
+| Rotation at a known lever 2–30 cm | lever estimate = true lever ± g/(2πf)² gravity term |
+| Single-axis vs circular 5 Hz rotation | axis linearity 1.00 vs 0.50 |
+
+## Real-patient evaluation
+`tools/eval_pads.py` runs this exact C++ code over the PADS dataset (469 people, both
+wrists, 11 tasks) and compares three decision rules on identical metrics. Results:
+[results/pads/REPORT.md](results/pads/REPORT.md).
 
 ## Limits (be honest in the presentation)
 - The cm estimate assumes a pure rotation about the wrist with lever L; it should be calibrated against clinician ratings before any clinical use.
