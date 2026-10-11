@@ -44,7 +44,7 @@ stores and runs the phone-based tapping test.
 | `firmware/src/dsp/` | Portable C++ signal processing (FFT, tremor detector, hand-turning test). No Arduino code, so it is unit-tested on a PC. |
 | `firmware/test/host/` | PC test harness: synthetic tremor / movement / noise signals → checks the detector |
 | `dashboard/` | The web app (plain HTML/JS modules, no build step, works offline) |
-| `tools/` | Cross-checks between firmware and dashboard (packet format) |
+| `tools/` | Protocol cross-check, model and screen-test unit tests, PADS evaluation, guided experiment + recorder, teacher graphs, detector CLI, CI/Pages workflows |
 | `docs/` | Plan, hardware build guide, BLE protocol, algorithm, user flow |
 
 ## 3. Firmware modules
@@ -57,9 +57,11 @@ stores and runs the phone-based tapping test.
 | `dsp/tremor` | Per-window analysis: spectrum → tremor decision → amplitude → severity |
 | `dsp/aggregate` | Rolls window results into 30-s epochs and into tremor-test results |
 | `dsp/pronsup` | Hand-turning (pronation–supination) test analysis: speed, amplitude, decrement, rhythm |
+| `dsp/wearoff` | Wearing-off warning on the band: time alert from the learned timing, early alert when tremor is back |
 | `storage` | Append-only segmented queue on LittleFS with sequence numbers + ACK pointer; boot/time table |
 | `ble_service` | GATT server: Live, Records, Control, Status, Test characteristics |
-| `main` | Scheduler: sample → analyse every 1 s → epoch every 30 s → store → sync |
+| `main` | Scheduler: sample → analyse every 1 s → epoch every 30 s → store → sync; dose button; alert LED/motor |
+| `diag/i2c_scan`, `diag/rawlog` | Bring-up tools: wiring check; raw 100 Hz IMU logger for recordings |
 
 ## 4. Detection algorithm (summary — full detail in [ALGORITHM.md](ALGORITHM.md))
 
@@ -71,7 +73,8 @@ stores and runs the phone-based tapping test.
 4. Tremor *candidate* if, inside 4–6 Hz (all four must hold):
    - **narrow/strong:** the peak's main lobe holds ≥ 40 % of all power in 1–15 Hz, and is a true local peak;
    - **big enough:** tremor angular-velocity amplitude ≥ 0.10 rad/s (well above sensor noise);
-   - **steady:** the beat is about as strong in the first and second half of the window (not a single jerk).
+   - **steady:** the beat is about as strong in the first and second half of the window (not a single jerk);
+   - **made at the wrist:** effective lever arm accel ÷ (gyro × 2πf) ≤ 15 cm — otherwise it is a rhythmic arm movement such as brushing (see [RESEARCH.md](RESEARCH.md)).
 5. **Consistent:** confirmed only if the previous window was also a candidate at a similar frequency (±1 Hz).
 6. Amplitude: angular amplitude θ = ω / (2πf); hand displacement ≈ 2·θ·L (L = wrist-to-hand lever, default 10 cm, settable in the app).
 7. Severity uses the MDS-UPDRS tremor-amplitude bins: none → 0, < 1 cm → 1, 1–3 cm → 2, 3–10 cm → 3, ≥ 10 cm → 4.
@@ -94,7 +97,8 @@ stores and runs the phone-based tapping test.
 | `js/store.js` | IndexedDB: records, doses, test results, settings |
 | `js/chart.js` | Small canvas chart library (no CDN → works offline) |
 | `js/tests.js` | Finger-tapping test (on screen) + band-based tests (rest tremor, postural tremor, hand turning) |
-| `js/report.js` | Daily summaries, CSV export, printable report for the neurologist |
+| `js/report.js` | Daily summaries, per-dose response, CSV export, printable report for the neurologist |
+| `js/wearoff.js` | Personal wearing-off model (Kaplan–Meier with censoring, time-of-day slots), prediction, backtest; JS twin of the band's alert logic for the demo |
 | `js/app.js` | Views and wiring |
 | `sw.js` | Service worker — after the first load the app works with no internet |
 
