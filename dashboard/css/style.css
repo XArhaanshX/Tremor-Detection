@@ -205,3 +205,28 @@ table.kv tr + tr th, table.kv tr + tr td { border-top: 1px solid var(--grid); }
   .card, .tile { break-inside: avoid; }
   main { max-width: none; padding: 0; }
 }
+
+/* ---- medicine: wearing-off warning, dose cycle, check-ins (static, no motion) ---- */
+.alert-banner { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: var(--radius); padding: 20px 24px; margin-bottom: 24px; }
+.alert-banner[hidden] { display: none; }
+.alert-text { flex: 1 1 320px; }
+.alert-banner strong { font-size: 1.15rem; }
+.alert-banner p { margin: 4px 0 0; color: var(--text-2); }
+.checkin-card { border-color: var(--accent); }
+.checkin-card[hidden], .dose-track-wrap[hidden] { display: none; }
+.checkin-card h3 + p { margin-top: 8px; }
+.dose-track-wrap { position: relative; margin: 16px 0 8px; }
+.dose-track { display: flex; height: 20px; border-radius: 10px; overflow: hidden; background: var(--surface-2); }
+.dose-track span, .dose-legend .lg { display: inline-block; height: 100%; }
+.dose-track .kick, .dose-legend .kick { background: var(--axis); }
+.dose-track .on, .dose-legend .on { background: var(--good); }
+.dose-track .warn, .dose-legend .warn { background: var(--warning); }
+.dose-track .after, .dose-legend .after { background: var(--serious); }
+.dose-now { position: absolute; top: -5px; height: 30px; width: 4px; margin-left: -2px; background: var(--text); border-radius: 2px; }
+.dose-scale { position: relative; height: 1.5em; margin-top: 6px; font-size: 0.85rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dose-scale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.dose-scale span:first-child { transform: none; }
+.dose-scale span:last-child { transform: translateX(-100%); }
+.dose-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; }
+.dose-legend .lg { width: 14px; height: 14px; border-radius: 4px; vertical-align: middle; }
+.card h4 { font-size: 0.95rem; font-weight: 650; margin: 22px 0 6px; color: var(--text-2); }

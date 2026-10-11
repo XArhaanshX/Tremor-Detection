@@ -32,6 +32,18 @@
   </nav>
 
   <main>
+    <!-- wearing-off warning: shown on every tab while active -->
+    <div class="alert-banner" id="alertBanner" role="alert" hidden>
+      <div class="alert-text">
+        <strong id="alertTitle"></strong>
+        <p id="alertText"></p>
+      </div>
+      <div class="row">
+        <button class="btn" id="alertOk">OK</button>
+        <button class="btn primary" id="alertDose">I took my medicine</button>
+      </div>
+    </div>
+
     <!-- LIVE -->
     <section class="view" id="view-live">
       <div class="card onboarding" id="onboarding">
@@ -65,6 +77,24 @@
           <div class="tile"><div class="tile-label">Beat strength</div><div class="tile-val" id="tRatio">–</div><div class="tile-hint">how narrow &amp; steady the beat is</div></div>
           <div class="tile"><div class="tile-label">Arm movement</div><div class="tile-val" id="tAct">–</div><div class="tile-hint">normal, voluntary motion</div></div>
         </div>
+      </div>
+
+      <div class="card checkin-card" id="checkinCard" hidden>
+        <h3 id="checkinTitle"></h3>
+        <p class="muted" id="checkinText"></p>
+        <div class="row" id="checkinActions"></div>
+      </div>
+
+      <div class="card med-card" id="medCard">
+        <div class="card-head"><h3>Medicine</h3><span class="muted small" id="medNote"></span></div>
+        <p id="medLine1">No medicine logged yet. Press “I took my medicine” each time you take it.</p>
+        <div class="dose-track-wrap" id="doseTrackWrap" hidden>
+          <div class="dose-track" id="doseTrack" aria-hidden="true"></div>
+          <div class="dose-now" id="doseNow"></div>
+          <div class="dose-scale" id="doseScale"></div>
+          <div class="dose-legend small muted"><span class="lg kick"></span>starting to work <span class="lg on"></span>working <span class="lg warn"></span>may wear off <span class="lg after"></span>usually worn off</div>
+        </div>
+        <p class="muted" id="medLine2"></p>
       </div>
 
       <div class="card">
@@ -133,6 +163,10 @@
       <p class="muted print-only" id="reportMeta"></p>
       <div class="tiles four" id="reportTiles"></div>
       <div class="card">
+        <div class="card-head"><h3>Tremor-free time per day</h3><span class="muted small">hours of monitored time with no tremor</span></div>
+        <div id="freeChart"></div>
+      </div>
+      <div class="card">
         <div class="card-head"><h3>A typical day</h3><span class="muted small">average severity by hour across the range</span></div>
         <div id="patternChart"></div>
       </div>
@@ -169,6 +203,12 @@
         <label class="field">Band worn on
           <select id="wristSelect"><option value="right">Right wrist</option><option value="left">Left wrist</option></select>
         </label>
+      </div>
+      <div class="card">
+        <h3>Medicine reminders</h3>
+        <p class="muted small">The app learns how long each dose usually lasts and warns shortly before tremor tends to come back. The band blinks its light (or buzzes, if a motor is fitted) even when this device is away.</p>
+        <table class="kv" id="reminderInfo"></table>
+        <div class="row" style="margin-top:12px"><button class="btn" id="notifyBtn">Also show notifications on this device</button></div>
       </div>
       <div class="card">
         <h3>Wristband</h3>
