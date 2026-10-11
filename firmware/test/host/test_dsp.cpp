@@ -41,20 +41,41 @@ struct Signal {
   int size() const { return (int)g[0].size(); }
 };
 
-// Rotational tremor about an arbitrary axis with peak-to-peak hand displacement pp_cm.
-static void addTremor(Signal& s, float f, float pp_cm, const float axis[3], float lever_m = 0.10f,
-                      int from = 0, int to = -1) {
+// A rigid rotation theta(t) = A sin(2 pi f t) about unit axis n, with the sensor
+// sensor_lever_m away from that axis. The gyro sees n * theta'; the accelerometer
+// sees tangential acceleration L * theta'' plus the gravity re-projection of the tilt.
+static void addRotation(Signal& s, float f, float theta_amp, const float axis[3],
+                        float sensor_lever_m, int from = 0, int to = -1, float phase = -1) {
   if (to < 0) to = s.size();
-  float theta = (pp_cm / 100.0f) / (2.0f * lever_m);  // angular amplitude, rad
-  float w = theta * TWO_PI * f;                       // angular-velocity amplitude
   float norm = sqrtf(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]);
-  float phase = std::uniform_real_distribution<float>(0, TWO_PI)(rng);
+  float n[3] = {axis[0] / norm, axis[1] / norm, axis[2] / norm};
+  // tangential direction: perpendicular to n (and to the lever, taken along n x z)
+  float t[3] = {n[1], -n[0], 0};
+  float tn = sqrtf(t[0] * t[0] + t[1] * t[1]);
+  if (tn < 1e-3f) { t[0] = 1; t[1] = 0; tn = 1; }
+  t[0] /= tn; t[1] /= tn;
+  // gravity re-projection direction for a small tilt about n: n x g_hat
+  float gdir[3] = {n[1], -n[0], 0};
+  if (phase < 0) phase = std::uniform_real_distribution<float>(0, TWO_PI)(rng);
+  const float w = TWO_PI * f;
   for (int i = from; i < to; i++) {
-    float v = w * sinf(TWO_PI * f * i / FS + phase);
-    for (int k = 0; k < 3; k++) s.g[k][i] += v * axis[k] / norm;
-    // gravity re-projection seen by the accelerometer
-    s.a[0][i] += sinf(theta * sinf(TWO_PI * f * i / FS + phase));
+    float ph = w * i / FS + phase;
+    float theta = theta_amp * sinf(ph);
+    float omega = theta_amp * w * cosf(ph);
+    float alpha = -theta_amp * w * w * sinf(ph);
+    for (int k = 0; k < 3; k++) {
+      s.g[k][i] += omega * n[k];
+      s.a[k][i] += (sensor_lever_m * alpha / 9.80665f) * t[k] + theta * gdir[k];
+    }
   }
+}
+
+// Rest tremor: hand oscillates about the wrist; a wrist-worn sensor sits ~3 cm from
+// that axis. pp_cm is the hand's peak-to-peak displacement at lever hand_lever_m.
+static void addTremor(Signal& s, float f, float pp_cm, const float axis[3], float hand_lever_m = 0.10f,
+                      int from = 0, int to = -1) {
+  float theta = (pp_cm / 100.0f) / (2.0f * hand_lever_m);
+  addRotation(s, f, theta, axis, 0.03f, from, to);
 }
 
 // Slow voluntary movement: a few low-frequency components + smooth random drift.
@@ -125,6 +146,24 @@ static WindowAggregator summarize(const std::vector<WindowResult>& rs, int skip 
 }
 
 static const float AXIS_DIAG[3] = {0.8f, -0.5f, 0.3f};
+
+// What a gyro-only spectral detector (ELENA-style strong+narrow+steady) would say.
+static float spectralBaselinePct(const std::vector<WindowResult>& rs, int skip = 2) {
+  int n = 0, hit = 0;
+  TremorConfig c;
+  for (size_t i = skip; i < rs.size(); i++) {
+    n++;
+    hit += rs[i].freq_hz > 0 && rs[i].ratio >= c.min_ratio && rs[i].omega_amp >= c.min_omega_amp &&
+           rs[i].steadiness >= c.min_steadiness;
+  }
+  return n ? 100.0f * hit / n : 0;
+}
+
+static float meanLever(const std::vector<WindowResult>& rs, int skip = 2) {
+  float sum = 0; int n = 0;
+  for (size_t i = skip; i < rs.size(); i++) if (rs[i].freq_hz > 0) { sum += rs[i].lever_eff_m; n++; }
+  return n ? sum / n : 0;
+}
 
 // ---------------------------------------------------------------- tests
 static void testFFT() {
@@ -273,6 +312,82 @@ static void testNaturalTremor() {
   CHECK(fabsf(agg.ampMeanCm() - 2.0f) < 0.4f, "amp %.2f", agg.ampMeanCm());
 }
 
+static void testArmDrivenRhythms() {
+  printf("Rhythmic daily activities in the tremor band: brushing, washing, stirring\n");
+  struct Case { const char* name; float f, theta, lever; } cases[] = {
+      {"brushing teeth (elbow, 28 cm)", 4.3f, 0.06f, 0.28f},
+      {"washing hands (elbow, 25 cm)", 5.0f, 0.08f, 0.25f},
+      {"scrubbing a pan (shoulder, 40 cm)", 4.0f, 0.04f, 0.40f},
+      {"shaking a bottle (elbow, 22 cm)", 5.5f, 0.10f, 0.22f},
+  };
+  for (auto& c : cases) {
+    Signal s(30 * SAMPLE_HZ);
+    addRotation(s, c.f, c.theta, AXIS_DIAG, c.lever);
+    addWobble(s, 0.02f);
+    auto rs = runDetector(s, finishSensor(s));
+    auto agg = summarize(rs);
+    float base = spectralBaselinePct(rs);
+    printf("    %-34s gyro-only baseline %3.0f%%  ours %3.0f%%  lever_eff %.2f m\n", c.name, base,
+           agg.tremorPct(), meanLever(rs));
+    CHECK(base > 90, "%s: baseline should fire (%.0f%%) -- the gap we target", c.name, base);
+    CHECK(agg.tremorPct() == 0, "%s flagged as tremor %.0f%%", c.name, agg.tremorPct());
+    CHECK(meanLever(rs) > 0.15f, "%s lever_eff %.2f", c.name, meanLever(rs));
+  }
+  {
+    // Stirring: the wrist rotates a little while the whole hand travels a 3 cm circle.
+    Signal s(30 * SAMPLE_HZ);
+    const float f = 4.2f, A = 0.12f, rc = 0.03f;
+    addRotation(s, f, A, AXIS_DIAG, 0.03f, 0, -1, 0.0f);
+    for (int i = 0; i < s.size(); i++) {
+      float ph = TWO_PI * f * i / FS;
+      s.a[0][i] += -rc * TWO_PI * f * TWO_PI * f * cosf(ph) / 9.80665f;
+      s.a[1][i] += -rc * TWO_PI * f * TWO_PI * f * sinf(ph) / 9.80665f;
+    }
+    auto rs = runDetector(s, finishSensor(s));
+    auto agg = summarize(rs);
+    printf("    %-34s gyro-only baseline %3.0f%%  ours %3.0f%%  lever_eff %.2f m\n", "stirring (3 cm circle)",
+           spectralBaselinePct(rs), agg.tremorPct(), meanLever(rs));
+    CHECK(agg.tremorPct() == 0, "stirring flagged %.0f%%", agg.tremorPct());
+  }
+}
+
+static void testLeverEstimate() {
+  printf("Effective lever arm: tremor stays small, arm rotation reads its true lever\n");
+  for (float L : {0.02f, 0.03f, 0.05f, 0.20f, 0.30f}) {
+    Signal s(20 * SAMPLE_HZ);
+    addRotation(s, 5.0f, 0.08f, AXIS_DIAG, L);
+    auto rs = runDetector(s, finishSensor(s));
+    float est = meanLever(rs);
+    float grav = 9.80665f / (TWO_PI * 5.0f) / (TWO_PI * 5.0f);  // ~1 cm at 5 Hz
+    // gravity re-projection adds or subtracts up to g/(2 pi f)^2 depending on orientation
+    printf("    lever %.2f m -> estimated %.3f m (true lever +- %.3f gravity term)\n", L, est, grav);
+    CHECK(est >= L - grav - 0.005f && est <= L + grav + 0.005f, "lever %.2f estimated %.3f", L, est);
+  }
+  Signal s(20 * SAMPLE_HZ);
+  addTremor(s, 5.0f, 3.0f, AXIS_DIAG);
+  auto rs = runDetector(s, finishSensor(s));
+  CHECK(summarize(rs).tremorPct() == 100 && meanLever(rs) < 0.06f, "tremor lever %.3f", meanLever(rs));
+}
+
+static void testAxisLinearity() {
+  printf("Axis linearity: one joint axis -> ~1, circular wrist motion -> ~0.5\n");
+  Signal a(20 * SAMPLE_HZ);
+  addRotation(a, 5.0f, 0.08f, AXIS_DIAG, 0.03f);
+  auto ra = runDetector(a, finishSensor(a));
+  Signal b(20 * SAMPLE_HZ);
+  const float ax1[3] = {1, 0, 0}, ax2[3] = {0, 1, 0};
+  addRotation(b, 5.0f, 0.08f, ax1, 0.03f, 0, -1, 0.0f);
+  addRotation(b, 5.0f, 0.08f, ax2, 0.03f, 0, -1, 0.5f * (float)M_PI);  // 90 deg out of phase
+  auto rb = runDetector(b, finishSensor(b));
+  float la = 0, lb = 0; int na = 0, nb = 0;
+  for (size_t i = 2; i < ra.size(); i++) if (ra[i].freq_hz > 0) { la += ra[i].axis_linearity; na++; }
+  for (size_t i = 2; i < rb.size(); i++) if (rb[i].freq_hz > 0) { lb += rb[i].axis_linearity; nb++; }
+  la /= na ? na : 1; lb /= nb ? nb : 1;
+  printf("    single axis %.2f   circular %.2f\n", la, lb);
+  CHECK(la > 0.95f, "single-axis linearity %.2f", la);
+  CHECK(lb < 0.6f, "circular linearity %.2f", lb);
+}
+
 static void testConsistency() {
   printf("A single burst is not a tremor (consistency)\n");
   Signal s(20 * SAMPLE_HZ);
@@ -343,6 +458,9 @@ int main() {
   testNoFalseAlarms();
   testTremorWithMovement();
   testNaturalTremor();
+  testArmDrivenRhythms();
+  testLeverEstimate();
+  testAxisLinearity();
   testConsistency();
   testLever();
   testPronSup();
