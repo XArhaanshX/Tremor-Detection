@@ -32,8 +32,8 @@ So the gap is concrete and documented by the people with the best data:
 
 > **Rhythmic everyday activities produce a strong, narrow, steady 4–6 Hz peak that is
 > spectrally indistinguishable from rest tremor on a gyroscope. Existing detectors either
-> accept them (false positives) or gate out all movement (lost sensitivity). Nobody uses the
-> *physics* that separates the two.**
+> accept them (false positives) or gate out all movement (lost sensitivity). We found no tremor
+> detector that uses the *physics* that separates the two** (search done Oct 2026; not exhaustive).
 
 ## 2. The physics we exploit
 
@@ -61,6 +61,19 @@ motions (stirring) are elliptical in rotation space, so their **axis linearity**
 
 Neither quantity needs training data, a calibration session or per-patient tuning, and both
 cost a handful of multiply-adds on top of the FFTs the ESP32 already does.
+
+**What is NOT new.** The physics and the estimation trick are old: recovering where a joint
+is from an IMU's accelerometer + gyroscope is standard in biomechanics (Seel et al. 2012,
+*Joint axis and position estimation from inertial measurement data by exploiting kinematic
+constraints*), inertial navigation calls it lever-arm compensation, and tremor-cancelling
+surgical tools separate rotation-induced tangential acceleration from translation. Tremor
+researchers also know a wrist sensor mixes in oscillation from the elbow and shoulder
+([Using Portable Transducers to Measure Tremor Severity](https://tremorjournal.org/articles/10.5334/tohm.320)).
+**What appears to be new** is the *application*: reading the effective lever arm at the
+tremor frequency, on the wearable, as the test that separates Parkinsonian tremor from
+rhythmic daily activities. Before claiming even that, search Google Scholar and Google
+Patents for e.g. "tremor" + "radius of rotation" / "lever arm" / "center of rotation" +
+"activities of daily living", and ask the faculty guide.
 
 ## 3. The algorithm (ELA: Effective-Lever-Arm attribution)
 
