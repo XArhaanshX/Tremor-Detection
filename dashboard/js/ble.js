@@ -156,5 +156,9 @@ export class BandConnection extends EventTarget {
   startTest(type, seconds) { return this.write(P.cmdTestStart(type, seconds)); }
   abortTest() { return this.write(P.cmdTestAbort()); }
   erase() { return this.write(P.cmdErase()); }
-  noteDose() {}  // the real band learns about doses only via its button
+  // Doses logged in the app reach the band, so its wearing-off timer is right even
+  // when the patient used the app instead of the band's button.
+  noteDose(t) { return this.state === 'connected' ? this.write(P.cmdDose(Math.floor(t / 1000))) : Promise.resolve(); }
+  setWearOff(warnAfterMin, typicalMin) { return this.write(P.cmdSetWearOff(warnAfterMin, typicalMin)); }
+  dismissAlert() { return this.write(P.cmdAlertDismiss()); }
 }
