@@ -67,7 +67,10 @@ export function wearOff(epochs, doses) {
   const out = [];
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i].t;
-    const next = i + 1 < ds.length ? ds[i + 1].t : d + 6 * 3600e3;
+    // Look at most 6 h past the dose: an evening dose's "next dose" is tomorrow morning, and
+    // the tremor before that first morning dose says nothing about the evening dose.
+    const nextDose = i + 1 < ds.length ? ds[i + 1].t : null;
+    const next = Math.min(nextDose ?? Infinity, d + 6 * 3600e3);
     const win = ep.filter((e) => e.t > d && e.t <= next);
     if (win.length < 20) continue;  // not enough wear time after this dose
     let onset = null, off = null, lo = 0, sum = 0;
@@ -82,7 +85,7 @@ export function wearOff(epochs, doses) {
       dose: d,
       onsetMin: onset ? Math.round((onset - d) / 60e3) : null,
       wearOffMin: off ? Math.round((off - d) / 60e3) : null,
-      untilNextMin: i + 1 < ds.length ? Math.round((next - d) / 60e3) : null,
+      untilNextMin: nextDose != null && nextDose - d <= 6 * 3600e3 ? Math.round((nextDose - d) / 60e3) : null,
     });
   }
   return out;
