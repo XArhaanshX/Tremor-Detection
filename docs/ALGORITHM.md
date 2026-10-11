@@ -78,3 +78,50 @@ Buffers up to 15 s of gyro data, finds the main rotation axis by power iteration
 (15 % of peak speed, ≥ 0.5 rad/s), and reports turns/s, rotation per turn, peak speed,
 amplitude & speed decrement (first third vs last third), rhythm CV and hesitations —
 the things MDS-UPDRS 3.6 asks a clinician to judge by eye.
+
+## Wearing-off prediction (`dashboard/js/wearoff.js` + `firmware/src/dsp/wearoff.cpp`)
+
+**Learning (in the app, from the last 21 days).** For each dose, the 30-s records give:
+- *starts working*: first time the 20-min rolling severity drops below 0.5 (≥ 10 min after the dose);
+- *tremor returns*: first time it rises back to ≥ 1, at least 20 min after it started working
+  (looked at for at most 6 h, and never past the next dose).
+
+Doses where tremor had **not** returned by the next dose (or by the time the band was taken
+off) are *censored*: "lasted at least this long". Ignoring them, or treating them as returns,
+biases the estimate short. So the duration is estimated with the **Kaplan–Meier** estimator,
+the standard method for time-to-event data with censoring (checked against the textbook
+Freireich 6-MP example in `tools/test_wearoff.mjs`):
+
+| Output | Definition |
+|---|---|
+| typical wear-off | KM median time to tremor returning (shown as "at least …" if most doses outlast the next one) |
+| reminder after | KM 25th percentile (1 in 4 doses has worn off by then), ≥ 20 min before the typical return, ≥ 15 min after it usually starts working |
+| per time of day | the same, separately for morning / midday / afternoon / evening doses once a slot has ≥ 4 doses |
+
+Needs ≥ 4 doses with recordings, ≥ 2 of them with tremor returning.
+
+**Warning (on the band, works with the phone away).** The app sends `warn_after_min` and
+`typical_min` for the latest dose's time of day, plus app-logged doses. The band alerts:
+- *time*: `warn_after_min` after the last dose (only until 30 min past the usual wear-off);
+- *early*: tremor confirmed in ≥ 50 % of the last 10 min, ≥ 45 min after the dose — tremor is
+  already back, whatever the history says. Needs ≥ 6 of those 10 min observed.
+
+The alert = LED double-blink every 3 s (+ motor pulses if fitted) for up to 30 min, ended by
+a new dose or dismiss. The app shows a banner, and a system notification if allowed.
+
+**Honest evaluation (backtest).** Each past dose is predicted using only doses before it,
+then compared with what happened — error in minutes, % of returns warned in advance, lead
+time, warnings when tremor didn't return — next to a fixed "every dose lasts 3 h" rule.
+Shown in the Report tab. Synthetic patient lasting 140 ± 15 min: learned error 8 min, warned
+in advance 100 %, vs fixed rule 31 min / 12 %. When a patient's doses really do last ~3 h,
+the fixed rule does as well (the demo patient is such a case) — learning pays off when a
+patient differs from the default.
+
+Limits: the "returns" threshold uses rest tremor only (tremor hidden by activity looks like
+"still working"); dose size, meals and missed doses are not modelled; not validated on
+patients.
+
+## Check-ins
+After each dose the app offers a short test ~1 h later ("is it working?") and just before the
+predicted wear-off. Every test stores minutes since the last dose, and the Report groups
+test scores by time since dose (0–1 h, 1–2 h, 2–3 h, 3 h+).

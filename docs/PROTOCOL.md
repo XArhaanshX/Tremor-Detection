@@ -28,6 +28,9 @@ Service `d2e60001-ed8b-45e3-b151-051e61e017ff`, advertised as `TremorBand-XXXX`.
 | `0x10` | TEST_START | u8 type (1 rest, 2 postural, 3 hand turning), u16 seconds |
 | `0x11` | TEST_ABORT | — |
 | `0x20` | SET_LEVER | u16 mm (30–300), saved in NVS |
+| `0x21` | DOSE | u32 unix seconds — a dose logged in the app (the band button logs its own) |
+| `0x22` | SET_WEAROFF | u16 warn_after_min, u16 typical_min — learned in the app; 0 = unknown; saved in NVS |
+| `0x23` | ALERT_DISMISS | — patient acknowledged the wearing-off warning |
 | `0x7F` | ERASE | `0xA5 0x5A` |
 
 ## Sync sequence
@@ -52,5 +55,16 @@ app                                   band
 - A gap in a batch (lost notification) → the app ACKs only up to the gap → resent.
 - `store_id` changes after ERASE (or a fresh flash) so old and new sequence numbers never collide.
 - Records are stored with *uptime*; the band converts to unix time at send if it knows that boot's offset (`REC_TIME_VALID`).
+
+## Wearing-off warning (protocol v2)
+
+- On connect, and whenever the app's model or the latest dose changes, the app sends
+  `SET_WEAROFF` (timing for the latest dose's time of day) and `DOSE` (the latest dose).
+- The band keeps the last dose (button press or `DOSE`, newest wins) and raises an alert:
+  *time* (`warn_after_min` reached, up to 30 min past the usual wear-off) or *early*
+  (tremor confirmed in ≥ 50 % of the last 10 min, ≥ 45 min after the dose).
+- Alert state is in `StatusPacket.flags`: `ST_ALERT` (bit 6), `ST_ALERT_EARLY` (bit 7).
+  The epoch in which an alert starts carries `REC_ALERT` (bit 6).
+- An alert ends after 30 min, on `ALERT_DISMISS`, or on a new dose.
 
 Packet field layouts are documented inline in `protocol.h`.

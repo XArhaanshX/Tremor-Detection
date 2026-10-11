@@ -62,6 +62,20 @@ Electrical notes (checked against datasheets):
 - The XIAO charges the LiPo from USB-C at ~100 mA (≈5 h for 500 mAh). With the switch
   in series, **the switch must be ON to charge**.
 
+### Optional: vibration motor for the wearing-off warning
+
+Without a motor the band warns with its LED (a double blink every 3 s). For a buzz you can
+feel, add a 3 V coin vibration motor (10 mm, ~70 mA), an NPN transistor (2N2222 / S8050), a
+1 kΩ base resistor and a 1N4148 diode:
+
+```
+3V3 ── motor + ;  motor − ── collector (NPN) ;  emitter ── GND
+GPIO ── 1 kΩ ── base ;  1N4148 across the motor (stripe to 3V3) to absorb the motor's kick
+```
+
+Then set `PIN_MOTOR` in `firmware/include/config.h` (XIAO: `2` = D1; ESP32 dev board: `25`).
+The motor must never be driven straight from a GPIO pin: it needs ~70 mA, a pin gives ~20 mA.
+
 ## 3. Mechanical assembly
 
 1. Solder the 4 wires between XIAO and GY-521 (keep them short — 3–4 cm).
