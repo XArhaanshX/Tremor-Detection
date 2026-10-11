@@ -8,7 +8,7 @@
 
 ## 1. Summary
 
-TremorBand is an ESP32-S3 + IMU wristband that watches a Parkinson's patient's hand all day, detects **rest tremor on the device itself** using an FFT (no cloud), converts it into a **0–4 severity score** on the MDS-UPDRS tremor-amplitude scale, and streams it live over Bluetooth Low Energy to an **offline-capable web dashboard**. If Bluetooth drops, the band stores data in flash and syncs it later with acknowledgements, so nothing is lost. The dashboard also runs short **active tests** (finger tapping, hand turning, rest/postural tremor), so passive monitoring and active testing live in one platform, and produces a printable **report for the neurologist**.
+TremorBand is an ESP32-S3 + IMU wristband that watches a Parkinson's patient's hand all day, detects **rest tremor on the device itself** using an FFT (no cloud), converts it into a **0–4 severity score** on the MDS-UPDRS tremor-amplitude scale, and streams it live over Bluetooth Low Energy to an **offline-capable web dashboard**. If Bluetooth drops, the band stores data in flash and syncs it later with acknowledgements, so nothing is lost. A **lever-arm check** (accelerometer ÷ gyroscope at the beat frequency) tells tremor made at the wrist from rhythmic arm movements such as tooth-brushing. The app **learns how long each dose lasts for this patient** and the band **warns before tremor usually returns** (or as soon as it returns early). The dashboard runs eight short **active tests**, prompted around each dose, so passive monitoring and active testing live in one platform, and produces a printable **report for the neurologist**.
 
 ## 2. Problem and opportunity
 
@@ -28,6 +28,8 @@ TremorBand is an ESP32-S3 + IMU wristband that watches a Parkinson's patient's h
 4. Keep all data private: no accounts, no cloud, no telemetry. Data lives on the band and in the user's own browser.
 5. Be usable by patients with tremor, stiffness and slowness (see §9, UX requirements).
 6. Combine passive monitoring and active tests; give medication-response insight (time to effect, wearing-off).
+6a. Warn the patient before their medicine usually wears off, from their own history, on the band itself.
+6b. Don't count rhythmic daily activities (brushing, stirring, scrubbing) as tremor.
 7. Be buildable by a beginner from off-the-shelf parts and runnable with no hardware (demo mode).
 
 ### Non-goals
@@ -75,6 +77,7 @@ All tremor analysis happens on the band. The dashboard displays, stores, runs th
 | 5 | 2 × 100 kΩ + 100 nF (optional) | Battery-voltage sensing |
 | 6 | 3D-printed case (~45 × 38 × 14 mm) + 20 mm watch strap/Velcro | IMU must be held rigidly to the wrist |
 | 7 | 30 AWG silicone wire, heat-shrink, foam tape | Assembly |
+| 8 | Optional: 3 V coin vibration motor + NPN transistor + 1 kΩ + 1N4148 | Buzz for the wearing-off warning (`PIN_MOTOR`); without it the LED double-blinks |
 
 Alternative: classic ESP32 dev board for bench prototyping (`esp32dev` env). **Do not use ESP32-C3** (no FPU).
 
@@ -135,6 +138,8 @@ Charging from USB-C at ~100 mA (≈ 5 h). Future: ESP-IDF automatic light sleep 
 | `dsp/fft.cpp` | Radix-2 float FFT |
 | `dsp/tremor.cpp` | Per-window analysis: spectrum → tremor decision → amplitude → severity |
 | `dsp/pronsup.cpp` | Hand-turning (pronation–supination) analysis |
+| `dsp/wearoff.cpp` | Wearing-off warning on the band: time alert from the learned timing, early alert when tremor is back |
+| `diag/i2c_scan.cpp`, `diag/rawlog.cpp` | Bring-up: wiring check; raw 100 Hz IMU logger for test recordings |
 | `storage.cpp` | Append-only segmented queue on LittleFS with sequence numbers, ACK pointer, boot/time table |
 | `ble_service.cpp` | GATT server: Live, Records, Control, Status, Test characteristics |
 | `main.cpp` | Scheduler: sample → analyse each 1 s → epoch each 30 s → store → sync |
@@ -153,6 +158,7 @@ Input: last 256 gyro samples (2.56 s at 100 Hz, 0.39 Hz resolution), new result 
    - **Strong:** amplitude ≥ 0.10 rad/s (~0.6 mm)
    - **In band:** true local maximum inside 4–6 Hz
    - **Steady:** beat amplitude ratio first/second half of the window ≥ 0.5
+   - **Made at the wrist:** effective lever arm = accel amplitude ÷ (gyro amplitude × 2πf) ≤ 15 cm. Larger = the whole arm is swinging (brushing, stirring, scrubbing) → reported as "rhythmic arm movement", not counted. See `docs/RESEARCH.md` (literature gap, PADS results).
 5. **Confirmed** only if the previous window was also a candidate within ±1 Hz (onset latency ≈ 3.5 s).
 6. Amplitude by Parseval: ω = √(2·ms); θ = ω/(2πf); hand displacement peak-to-peak ≈ 2·θ·L, with L = wrist-to-palm lever (default 10 cm, set in app).
 7. Severity (MDS-UPDRS 3.17 amplitude bins): none = 0, < 1 cm = 1, 1–3 cm = 2, 3–10 cm = 3, ≥ 10 cm = 4.
@@ -161,6 +167,10 @@ Input: last 256 gyro samples (2.56 s at 100 Hz, 0.39 Hz resolution), new result 
 ### 7.2 Hand-turning test
 
 Buffers up to 15 s of gyro data, finds the main rotation axis by power iteration on the 3×3 covariance (orientation-free), splits into half-turns with hysteresis (15 % of peak speed, ≥ 0.5 rad/s), and reports turns/s, rotation per turn, peak speed, amplitude and speed decrement (first vs last third), rhythm CV and hesitations (the things MDS-UPDRS 3.6 asks a clinician to judge by eye).
+
+### 7.2a Wearing-off warning
+
+The app learns, from the last 21 days, when each dose started working and when tremor came back. Doses where tremor had not come back by the next dose are *censored*, so the typical duration is a **Kaplan–Meier** median (per time of day once there's enough data); the reminder is the KM 25th percentile, at least 20 min before the typical return. The app sends `warn_after_min`/`typical_min` and app-logged doses to the band, which raises a *time* alert at `warn_after_min` (until 30 min past the usual wear-off) or an *early* alert when tremor is confirmed in ≥ 50 % of the last 10 min, ≥ 45 min after a dose. Alert = LED double-blink every 3 s (+ motor if fitted), app banner, optional system notification. A backtest in the Report predicts each past dose from earlier ones only, against a fixed 3-hour rule. Details: `docs/ALGORITHM.md`.
 
 ### 7.3 Data storage and "nothing is lost"
 
@@ -181,7 +191,7 @@ All packets ≤ 20 bytes, little-endian. Service `d2e60001-ed8b-45e3-b151-051e61
 | Status | `…0005` | read, notify | `StatusPacket` 20 B, every 5 s + on change |
 | Test | `…0006` | notify | progress (6 B) / result (16 B) / aborted (2 B) |
 
-Commands: `0x01 SET_TIME`, `0x02 SYNC`, `0x03 ACK`, `0x10 TEST_START` (1 rest, 2 postural, 3 hand turning), `0x11 TEST_ABORT`, `0x20 SET_LEVER` (30–300 mm, saved in NVS), `0x7F ERASE` (needs `0xA5 0x5A`).
+Commands: `0x01 SET_TIME`, `0x02 SYNC`, `0x03 ACK`, `0x10 TEST_START` (1 rest, 2 postural, 3 hand turning), `0x11 TEST_ABORT`, `0x20 SET_LEVER` (30–300 mm, saved in NVS), `0x21 DOSE` (u32 unix), `0x22 SET_WEAROFF` (u16 warn-after min, u16 typical min, saved in NVS), `0x23 ALERT_DISMISS`, `0x7F ERASE` (needs `0xA5 0x5A`). Protocol v2 adds status flags `ST_ALERT`/`ST_ALERT_EARLY`, record flag `REC_ALERT` and live flag `LIVE_ARM_RHYTHM`.
 
 **Sync:** app sets time and lever, reads status, sends SYNC; band streams ≤ 32 records 6 ms apart then BATCH_END; app saves to IndexedDB and sends ACK for the highest contiguous seq; band deletes ACKed segments and sends the next batch until SYNC_DONE. No ACK within 5 s → band resends from acked+1; app de-duplicates on `[store_id, seq]`; gaps are ACKed only up to the gap.
 
@@ -200,18 +210,21 @@ Commands: `0x01 SET_TIME`, `0x02 SYNC`, `0x03 ACK`, `0x10 TEST_START` (1 rest, 2
 | `js/store.js` | IndexedDB: records, doses, test results, settings |
 | `js/chart.js` | Dependency-free canvas chart: bars/line/step, markers, hover tooltip |
 | `js/tests.js` | Finger tapping (on screen) and band-based tests |
-| `js/report.js` | Daily summaries, CSV export, printable report |
+| `js/report.js` | Daily summaries, per-dose response, CSV export, printable report |
+| `js/wearoff.js` | Personal wearing-off model (Kaplan–Meier, time-of-day slots), prediction, backtest; JS twin of the band's alert rules for the demo |
+| `css/screen_tests.css` | Styles for the on-screen tests (spiral, reaction, tracking, per-hand tapping) |
 | `sw.js` | Offline caching (cache name bumped per release) |
 
 ### 9.1 Views and features
 
 | View | Features |
 |---|---|
-| **Live** | Severity 0–4 with plain-word label, steady/moving explanation, shake rate (Hz), shake size (cm), beat strength, arm movement, 3-minute severity and size charts |
-| **Day** | Time monitored, % time with tremor, average and worst severity, 10-minute bar chart with dose markers, "how each dose worked" (time to effect, time until tremor returns), tests of the day, ‹ › day navigation, "forgot to log a dose" |
+| **Live** | Severity 0–4 with plain-word label, steady/moving/"rhythmic arm movement" explanation, shake rate (Hz), shake size (cm), beat strength, arm movement, **Medicine card** (last dose, dose-cycle bar, when tremor usually returns, reminder time), **check-in prompts** ~1 h after a dose and before it wears off, 3-minute severity and size charts |
+| **All tabs** | Calm **wearing-off banner** while an alert is active: *OK* or *I took my medicine* |
+| **Day** | Time monitored, tremor-free time (%), average and worst severity, 10-minute bar chart with dose markers, "how each dose worked" (time to effect, time until tremor returns), tests of the day, ‹ › day navigation, "forgot to log a dose" |
 | **Tests** | Finger tapping (10 s), hand turning (10 s), rest tremor (30 s), postural tremor (30 s); trend chart and history. Results are stored alongside the passive reading at that moment |
-| **Report** | 7/14/30 days: hours monitored, % tremor, average severity, dose duration, typical-day curve, day-by-day table, medication response, test averages; **Print / save PDF** and CSV export (records, doses, tests) |
-| **Settings** | Hand size (wrist-to-palm, 5–20 cm), wrist side, band info (battery, firmware, storage), data on device, delete app data, erase band memory |
+| **Report** | 7/14/30 days: hours monitored, tremor-free hours per day (chart), average severity, typical dose duration, typical-day curve, day-by-day table, medication response, learned dose timing by time of day, warning backtest vs a fixed 3-h rule, test averages, test scores by time since dose; **Print / save PDF** and CSV export (records, doses, tests incl. minutes since dose) |
+| **Settings** | Hand size (wrist-to-palm, 5–20 cm), wrist side, medicine reminders (learned timing, notifications), band info (battery, firmware, storage), data on device, delete app data, erase band memory |
 
 Also: connection pill with sync progress, demo mode ("Try the demo"), dose logging from the app or the band button.
 
@@ -223,6 +236,12 @@ Also: connection pill with sync progress, demo mode ("Try the demo"), dose loggi
 | Hand turning | Wristband gyro | 10 s | turns/s, rotation per turn, peak speed, amplitude and speed decrement, rhythm, hesitations |
 | Rest tremor | Wristband FFT pipeline | 30 s | % time with tremor, mean/max severity, Hz, cm |
 | Postural tremor | Same, arms held out | 30 s | same |
+| Tapping, each hand | Screen, one target, right then left | 2 × 10 s | taps/s per hand, rhythm, fatigue, left–right asymmetry |
+| Spiral drawing | Screen, trace an Archimedean spiral | ~30 s | wobble (RMS of high-passed radial error, % of loop spacing) and its frequency, distance from the line, coverage, speed |
+| Follow the dot | Screen, finger on a slowly moving dot | 20 s | % time on target, mean distance (in dot radii), lag (cross-correlation), finger lifted |
+| Reaction time | Screen, tap when the panel changes colour | 10 rounds | median/mean/SD, fastest/slowest, too-early taps |
+
+Check-ins: the Live tab prompts a short test ~1 h after a dose and just before it usually wears off. Every result stores minutes since the last dose. A running test is not cancelled by a tap outside its window.
 
 ### 9.3 UX requirements for patients with Parkinson's
 
@@ -246,8 +265,9 @@ These are product requirements, implemented in the current UI:
 | Live packet (20 B) | severity, tremor/candidate/high-freq flags, Hz, cm, ratio, activity | BLE only, last 3 minutes held in memory |
 | Status packet | battery, firmware, store_id, next_seq, acked_seq | BLE |
 | Dose | timestamp, source (app/band) | IndexedDB; band notified via `noteDose` |
-| Test result | kind, time, metrics, passive reading | IndexedDB |
-| Settings | lever cm, wrist side, demo flag | IndexedDB; lever also on band (NVS) |
+| Test result | kind, time, metrics, passive reading, minutes since last dose | IndexedDB |
+| Settings | lever cm, wrist side, demo flag, notifications, dismissed alert, check-ins done | localStorage; lever + wear-off timing also on band (NVS) |
+| Wear-off model | per-dose outcomes → KM estimate overall and per time of day | computed in the app; 2 numbers sent to the band |
 
 ## 11. Key user flows (`docs/USER_FLOW.md`)
 
@@ -279,6 +299,11 @@ These are product requirements, implemented in the current UI:
 | F13 | Demo mode without hardware | Should |
 | F14 | Orientation-independent measurement | Must |
 | F15 | Erase band memory and delete app data with confirmation | Should |
+| F16 | Don't count rhythmic arm movements (lever arm > 15 cm) as tremor | Must |
+| F17 | Learn per-patient dose duration with censoring; warn before typical wear-off, on the band | Should |
+| F18 | Early alert when tremor returns sooner than usual | Should |
+| F19 | Spiral, reaction, tracking and per-hand tapping tests; check-ins around doses | Should |
+| F20 | Report tremor-free time per day and a backtest of the warning | Should |
 
 ## 13. Non-functional requirements
 
@@ -295,8 +320,13 @@ These are product requirements, implemented in the current UI:
 
 ## 14. Testing and quality
 
-- **Host DSP tests:** `make -C firmware/test/host` (71 checks) runs FFT, tremor detector and hand-turning code on a PC with synthetic tremor, movement and noise (with MPU-6050 bias, noise and quantisation). Verified: 4–6 Hz, 0.5–12 cm tremor detected 100 %, frequency ±0.02 Hz, amplitude within 1 %, correct UPDRS bin, identical across 4 strap orientations; still hand, slow voluntary movement, random wobble, 2.5 Hz and 9 Hz oscillations → 0 %; 1.2 s burst not confirmed.
-- **Protocol cross-check:** `node tools/check_protocol.mjs` compiles the firmware C structs and checks the JS decoder byte-for-byte (needs a C++ compiler such as g++).
+- **Host DSP tests:** `make -C firmware/test/host` (104 checks, incl. lever-arm attribution against a physical rotation model and the wearing-off monitor) runs FFT, tremor detector and hand-turning code on a PC with synthetic tremor, movement and noise (with MPU-6050 bias, noise and quantisation). Verified: 4–6 Hz, 0.5–12 cm tremor detected 100 %, frequency ±0.02 Hz, amplitude within 1 %, correct UPDRS bin, identical across 4 strap orientations; still hand, slow voluntary movement, random wobble, 2.5 Hz and 9 Hz oscillations → 0 %; 1.2 s burst not confirmed.
+- **Protocol cross-check:** `node tools/check_protocol.mjs` compiles the firmware C structs and checks the JS decoder byte-for-byte (7 packet types + 8 commands; needs g++).
+- **Wear-off model:** `node tools/test_wearoff.mjs` (23 checks: Kaplan–Meier vs the textbook 6-MP example, censoring, time-of-day slots, backtest vs fixed rule, demo monitor = firmware rules).
+- **Screen tests:** `node tools/test_screen_tests.mjs` (65 checks: spiral wobble frequency, reaction stats, tracking lag, hand asymmetry).
+- **Real-patient dataset:** `tools/eval_pads.py` runs the firmware detector over PADS (469 people) — results in `docs/results/pads/REPORT.md`.
+- **Own recordings:** `tools/experiment.py` (guided: records brushing, stirring, imitated tremor, … and scores three detectors) — see `docs/EXPERIMENT.md`.
+- **Teacher graphs:** `tools/teacher_graphs.py` (raw, band-passed, spectrogram, lever arm) from any recording or `--simulate`.
 - **CI:** GitHub Actions workflows in `tools/github-workflows/` (CI, Pages deploy); copy to `.github/workflows/` to enable.
 - **Bring-up checklist:** WHO_AM_I 0x68 OK; flat on a table → severity 0, activity < 20 mg; shake ~5 Hz → severity 1–3 within 2–3 s; slow waving → 0; walk away > 1 min and return → automatic back-fill.
 
@@ -308,7 +338,7 @@ firmware/   PlatformIO project (Arduino-ESP32 + NimBLE)
   include/  config.h (tunables), protocol.h (packet source of truth)
   test/host PC test harness
 dashboard/  offline PWA: Web Bluetooth, IndexedDB, canvas charts, tests, reports
-tools/      protocol cross-check, CI/Pages workflows
+tools/      protocol check, model + screen-test tests, PADS eval, experiment/recorder, teacher graphs, CI/Pages workflows
 docs/       user flow, beginner build, hardware, architecture, algorithm, protocol
 ```
 
@@ -342,13 +372,15 @@ node tools/check_protocol.mjs
 | Battery safety on skin | Protected LiPo, no unattended charging |
 | Not clinically validated, no regulatory clearance | Positioned strictly as research/education |
 | Passive detection limited to tremor | Bradykinesia captured only by active tests |
+| Wear-off model uses rest tremor only; tremor hidden by activity looks like "still working"; meals/dose size not modelled | Early alert catches returns sooner than usual; backtest shown to the clinician; needs real-patient validation |
+| Lever-arm benefit shown in simulation; PADS tasks aren't rhythmic | Own recordings (`docs/EXPERIMENT.md`); WISDM dataset next |
 
 ## 18. Roadmap / future work
 
 1. Validate against clinician-rated MDS-UPDRS scores and real patient recordings; re-tune thresholds.
 2. Battery life: automatic light sleep, adaptive duty cycling.
 3. Passive bradykinesia, dyskinesia and gait/freezing indicators.
-4. Medication reminders and symptom diary prompts.
+4. ~~Medication reminders~~ (done: learned wearing-off warning); symptom diary prompts.
 5. Optional encrypted export / clinician sharing (user-initiated only).
 6. Native mobile app or Capacitor wrapper for iOS.
 7. Custom PCB and smaller enclosure; skin-safe materials.
@@ -369,4 +401,6 @@ node tools/check_protocol.mjs
 - [Hardware build guide](docs/HARDWARE.md)
 - [Software architecture](docs/ARCHITECTURE.md)
 - [Algorithm](docs/ALGORITHM.md)
+- [Research note: gap, lever-arm method, PADS results](docs/RESEARCH.md)
+- [Experiment with our own band](docs/EXPERIMENT.md)
 - [BLE protocol](docs/PROTOCOL.md)
