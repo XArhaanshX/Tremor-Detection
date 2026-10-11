@@ -1,0 +1,40 @@
+/* On-screen motor tests: spiral drawing, reaction time, follow the dot, one-finger tapping.
+   Uses only the design tokens from style.css. No motion, no transitions, fixed sizes so
+   changing text never moves the layout. */
+
+/* Wider modal while a drawing test runs (bigger canvas on tablets and laptops). */
+.modal-box.st-wide { width: min(720px, 100%); }
+@media (max-width: 520px) { .modal-box.st-wide { padding: 16px; } }
+
+/* Drawing surfaces: no scrolling, zooming, selection or tap highlight while a finger is on them. */
+.st-canvas-wrap { display: flex; justify-content: center; margin: 12px 0; }
+.st-canvas {
+  display: block; flex: none; border-radius: 12px; background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);  /* a shadow, not a border, so canvas and pointer coordinates line up */
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent; cursor: crosshair;
+}
+
+/* One-line-or-two status text with a reserved height. */
+.st-status { min-height: 3.2em; margin: 8px 0; color: var(--text-2); text-align: center; }
+.st-meta { display: flex; justify-content: space-between; gap: 12px; min-height: 1.6em; margin-bottom: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+/* Reaction-time panel: one colour change when it is time to tap, nothing else. */
+.st-panel {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; height: clamp(240px, 42vh, 340px); padding: 16px;
+  border: 3px solid var(--axis); border-radius: 16px; background: var(--surface-2); color: var(--text);
+  font: inherit; cursor: pointer;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.st-panel-main { font-size: 2.4rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.st-panel-sub { display: block; min-height: 3em; font-size: 1.05rem; color: var(--text-2); }
+.st-panel[data-state="go"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.st-panel[data-state="go"] .st-panel-sub { color: var(--accent-ink); }
+.st-panel[data-state="early"] { border-color: var(--warning); }
+.st-panel:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+/* One-finger tapping: one large circle (shares .tap-target styling from style.css). */
+.tap-target.st-single { width: min(64vw, 240px); -webkit-tap-highlight-color: transparent; }
+.st-hand { font-size: 1.5rem; }
