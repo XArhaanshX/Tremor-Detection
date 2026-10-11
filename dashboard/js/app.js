@@ -278,11 +278,11 @@ function renderMedicine() {
     return;
   }
   const e = m.slots[p.slot] ?? m.overall;
-  const when = p.slotSpecific ? `a ${p.slot} dose` : 'a dose';
+  const when = p.slotSpecific ? `${/^[aeiou]/.test(p.slot) ? 'an' : 'a'} ${p.slot} dose` : 'a dose';
   $('#medLine2').textContent = !e.medianReached
     ? `Most of your doses last until the next one (at least ${R.fmtDuration(p.typicalMin)}). You'll get a reminder ${R.fmtDuration(p.warnAfterMin)} after a dose, when some doses have started to wear off.`
     : mins < 6 * 60
-      ? `Tremor usually comes back about ${R.fmtDuration(p.typicalMin)} after ${when} — around ${fmtClock(p.returnAt)}. Reminder at ${fmtClock(p.warnAt)}${app.state === 'connected' ? ' (the band will blink too)' : ''}.`
+      ? `Tremor usually comes back about ${R.fmtDuration(p.typicalMin)} after ${when} — around ${fmtClock(p.returnAt)}. ${now < p.warnAt ? `Reminder at ${fmtClock(p.warnAt)}${app.state === 'connected' ? ' (the band will blink too)' : ''}.` : `The reminder time was ${fmtClock(p.warnAt)}.`}`
       : `Tremor usually comes back about ${R.fmtDuration(p.typicalMin)} after ${when}.`;
   if (mins >= 6 * 60) { wrap.hidden = true; return; }
   // dose cycle bar: starting to work -> working -> may wear off -> usually worn off; marker = now
@@ -318,7 +318,8 @@ function renderAlert() {
   let title, text;
   if (a.kind === 'early') {
     title = 'Tremor is coming back';
-    text = d ? `The band has picked up steady tremor ${ago} after your ${fmtClock(d.t)} dose — earlier than usual. Check your medication plan.`
+    const early = p && Date.now() < p.returnAt;
+    text = d ? `The band has picked up steady tremor ${ago} after your ${fmtClock(d.t)} dose${early ? ' — earlier than usual' : ''}. Check your medication plan.`
       : 'The band has picked up steady tremor again. Check your medication plan.';
   } else {
     title = 'Your medicine usually starts wearing off about now';
