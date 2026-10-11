@@ -116,8 +116,8 @@ export function dosesCsv(doses) {
 
 export function testsCsv(tests) {
   const keys = [...new Set(tests.flatMap((t) => Object.keys(t.result)))].filter((k) => !['type', 'state'].includes(k));
-  const rows = tests.map((t) => ({ time: new Date(t.t).toISOString(), test: t.kind, passiveSeverity: t.context?.severity, ...t.result }));
-  return csv(rows, ['time', 'test', 'passiveSeverity', ...keys]);
+  const rows = tests.map((t) => ({ time: new Date(t.t).toISOString(), test: t.kind, passiveSeverity: t.context?.severity, minSinceDose: t.context?.minSinceDose, ...t.result }));
+  return csv(rows, ['time', 'test', 'passiveSeverity', 'minSinceDose', ...keys]);
 }
 
 export function download(name, text) {

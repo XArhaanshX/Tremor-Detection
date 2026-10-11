@@ -4,6 +4,7 @@ import * as db from './store.js';
 import { Chart, fmtClock, fmtDate, timeTicks } from './chart.js';
 import { TESTS, TestRunner, byId, headline, detailRows } from './tests.js';
 import * as R from './report.js';
+import { learnModel, predict, backtest, SLOTS } from './wearoff.js';
 import { SEVERITY_LABELS } from './protocol.js';
 
 const $ = (s) => document.querySelector(s);
@@ -23,6 +24,10 @@ const app = {
   syncing: null,
   view: 'live',
   dayOffset: 0,
+  model: null,          // personal wearing-off model (wearoff.js)
+  lastDose: null,       // most recent dose {t, source}
+  alertShown: null,     // key of the alert currently on screen (for notifications)
+  sentToBand: null,     // last model/dose sent to the band
 };
 
 // ---------------------------------------------------------------- helpers
@@ -52,12 +57,18 @@ const refreshViews = debounce(() => renderView(app.view), 400);
 async function saveBatch(storeId, records) {
   await db.saveEpochs(storeId, records);
   refreshViews();
+  refreshModelSoon();
 }
 
 function attach(band) {
   band.addEventListener('state', (e) => onState(e.detail));
   band.addEventListener('live', (e) => onLive(e.detail));
-  band.addEventListener('status', (e) => { app.status = e.detail; renderConn(); if (app.view === 'settings') renderSettings(); });
+  band.addEventListener('status', (e) => {
+    app.status = e.detail;
+    renderConn();
+    renderAlert();
+    if (app.view === 'settings') renderSettings();
+  });
   band.addEventListener('sync', (e) => {
     app.syncing = e.detail.done ? null : e.detail;
     if (e.detail.done) app.lastSync = Date.now();
@@ -95,8 +106,10 @@ function disconnect() {
 function onState({ state }) {
   app.state = state;
   if (state !== 'connected') app.lastLive = null;
+  if (state === 'connected') { app.sentToBand = null; pushModelToBand(); }
   renderConn();
   renderHero();
+  renderAlert();
 }
 
 function renderConn() {
@@ -201,9 +214,186 @@ function niceTicks(max) {
 // ---------------------------------------------------------------- doses
 async function logDose(t = Date.now()) {
   await db.addDose(t, 'app');
-  app.band?.noteDose?.(t);
+  await refreshModel();  // picks the new dose up, sends its timing + the dose to the band
   toast(`Dose logged at ${fmtClock(t)}`);
   refreshViews();
+}
+
+// ---------------------------------------------------------------- medicine & wearing-off
+const MODEL_DAYS = 22;
+
+async function refreshModel() {
+  const now = Date.now();
+  const from = now - MODEL_DAYS * R.DAY_MS;
+  const [epochs, doses] = await Promise.all([db.epochsBetween(from, now + 1), db.dosesBetween(from, now + 1)]);
+  app.model = learnModel(epochs, doses, { now });
+  app.lastDose = doses.filter((d) => d.t <= now).sort((a, b) => a.t - b.t).at(-1) ?? null;
+  pushModelToBand();
+  renderMedicine();
+  renderAlert();
+  renderCheckin();
+}
+const refreshModelSoon = debounce(refreshModel, 1500);
+
+// The band runs the warning itself (works when the phone is away): give it the
+// timing for the latest dose's time of day, and the dose itself.
+function pushModelToBand() {
+  const band = app.band;
+  if (!band || app.state !== 'connected' || !band.setWearOff) return;
+  const d = app.lastDose;
+  const p = d ? predict(app.model, d.t) : null;
+  const o = app.model?.ok ? app.model.overall : null;
+  const warn = p?.warnAfterMin ?? o?.warnAfterMin ?? 0, typ = p?.typicalMin ?? o?.typicalMin ?? 0;
+  const key = `${warn}/${typ}/${d?.t ?? 0}`;
+  if (key === app.sentToBand) return;
+  app.sentToBand = key;
+  band.setWearOff(warn, typ);
+  if (d && Date.now() - d.t < 8 * 3600e3) band.noteDose(d.t);
+}
+
+const recentDose = () => (app.lastDose && Date.now() - app.lastDose.t < 6 * 3600e3 ? app.lastDose : null);
+
+function renderMedicine() {
+  const d = app.lastDose, m = app.model, now = Date.now();
+  const wrap = $('#doseTrackWrap');
+  const n = m?.overall?.n ?? 0;
+  $('#medNote').textContent = m?.ok ? `learned from ${n} doses` : '';
+  if (!d) {
+    $('#medLine1').textContent = 'No medicine logged yet. Press “I took my medicine” each time you take it.';
+    $('#medLine2').textContent = 'After about 4 doses with the band on, the app learns when your medicine usually wears off.';
+    wrap.hidden = true;
+    return;
+  }
+  const mins = (now - d.t) / 60e3;
+  if (mins >= 6 * 60) {
+    $('#medLine1').textContent = `Last dose: ${fmtDate(d.t)} at ${fmtClock(d.t)} — no dose in the last 6 hours.`;
+    wrap.hidden = true;
+  } else {
+    $('#medLine1').textContent = `Last dose at ${fmtClock(d.t)}, ${R.fmtDuration(mins)} ago${d.source === 'band' ? ' (band button)' : ''}.`;
+  }
+  const p = predict(m, d.t);
+  if (!p) {
+    $('#medLine2').textContent = `Learning when your medicine wears off: ${n} of 4 doses with enough recordings so far.`;
+    wrap.hidden = true;
+    return;
+  }
+  const e = m.slots[p.slot] ?? m.overall;
+  const when = p.slotSpecific ? `a ${p.slot} dose` : 'a dose';
+  $('#medLine2').textContent = !e.medianReached
+    ? `Most of your doses last until the next one (at least ${R.fmtDuration(p.typicalMin)}). You'll get a reminder ${R.fmtDuration(p.warnAfterMin)} after a dose, when some doses have started to wear off.`
+    : mins < 6 * 60
+      ? `Tremor usually comes back about ${R.fmtDuration(p.typicalMin)} after ${when} — around ${fmtClock(p.returnAt)}. Reminder at ${fmtClock(p.warnAt)}${app.state === 'connected' ? ' (the band will blink too)' : ''}.`
+      : `Tremor usually comes back about ${R.fmtDuration(p.typicalMin)} after ${when}.`;
+  if (mins >= 6 * 60) { wrap.hidden = true; return; }
+  // dose cycle bar: starting to work -> working -> may wear off -> usually worn off; marker = now
+  const span = Math.max(p.typicalMin + 45, mins + 10);
+  const pct = (v) => `${(100 * Math.min(v, span)) / span}%`;
+  const segs = [['kick', 0, p.kickInMin], ['on', p.kickInMin, p.warnAfterMin], ['warn', p.warnAfterMin, p.typicalMin], ['after', p.typicalMin, span]];
+  $('#doseTrack').innerHTML = segs.map(([c, a, b]) => `<span class="${c}" style="width:${pct(Math.max(0, b - a))}"></span>`).join('');
+  $('#doseNow').style.left = pct(mins);
+  $('#doseScale').innerHTML = `<span style="left:0">${fmtClock(d.t)}</span><span style="left:${pct(p.typicalMin)}">${fmtClock(p.returnAt)}</span><span style="left:100%">${fmtClock(d.t + span * 60e3)}</span>`;
+  wrap.hidden = false;
+}
+
+// Alert: the band is the source of truth while connected (it also catches tremor coming
+// back EARLY); otherwise the app warns from the learned timing alone.
+function currentAlert() {
+  const now = Date.now();
+  if (app.state === 'connected' && app.status) {
+    return app.status.alert ? { kind: app.status.alertEarly ? 'early' : 'time', source: 'band' } : null;
+  }
+  const d = recentDose();
+  const p = d && predict(app.model, d.t);
+  if (p && now >= p.warnAt && now < p.returnAt + 3600e3 && app.settings.dismissedDose !== d.t) return { kind: 'time', source: 'app' };
+  return null;
+}
+
+function renderAlert() {
+  const a = currentAlert();
+  const banner = $('#alertBanner');
+  if (!a) { banner.hidden = true; app.alertShown = null; return; }
+  const d = app.lastDose;
+  const p = d && predict(app.model, d.t);
+  const ago = d ? R.fmtDuration((Date.now() - d.t) / 60e3) : '';
+  let title, text;
+  if (a.kind === 'early') {
+    title = 'Tremor is coming back';
+    text = d ? `The band has picked up steady tremor ${ago} after your ${fmtClock(d.t)} dose — earlier than usual. Check your medication plan.`
+      : 'The band has picked up steady tremor again. Check your medication plan.';
+  } else {
+    title = 'Your medicine usually starts wearing off about now';
+    text = d && p ? `Last dose ${fmtClock(d.t)} (${ago} ago). Tremor usually comes back around ${fmtClock(p.returnAt)}. Check your medication plan.`
+      : 'Going by your usual pattern, tremor tends to come back soon. Check your medication plan.';
+  }
+  $('#alertTitle').textContent = title;
+  $('#alertText').textContent = text;
+  banner.hidden = false;
+  const key = `${a.kind}-${d?.t ?? 0}`;
+  if (app.alertShown !== key) {
+    app.alertShown = key;
+    if (app.settings.notify && document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+      try { new Notification('TremorBand', { body: `${title}. ${text}`, icon: 'icons/icon.svg', tag: 'wearoff' }); } catch { /* ignore */ }
+    }
+  }
+}
+
+function dismissAlert() {
+  if (app.state === 'connected') app.band?.dismissAlert?.();
+  if (app.lastDose) { app.settings.dismissedDose = app.lastDose.t; db.saveSettings(app.settings); }
+  $('#alertBanner').hidden = true;
+}
+
+// Check-ins: short tests timed around each dose ("is it working?" ~1 h after, and just
+// before it usually wears off), so test scores can be read against the dose cycle.
+function currentCheckin() {
+  const d = recentDose();
+  if (!d) return null;
+  const now = Date.now(), m = (now - d.t) / 60e3;
+  const done = app.settings.checkins?.[d.t] ?? [];
+  const p = predict(app.model, d.t);
+  if (m >= 60 && m < 90 && !done.includes('on')) {
+    return { kind: 'on', title: 'Quick check: is your medicine working?', text: 'About an hour after a dose is a good time for a short test. It takes 10–30 seconds.' };
+  }
+  if (p && now >= p.warnAt - 10 * 60e3 && now < p.warnAt + 30 * 60e3 && !done.includes('wearing')) {
+    return { kind: 'wearing', title: 'Quick check before your medicine wears off', text: `Your dose usually wears off around ${fmtClock(p.returnAt)}. A short test now shows how you're doing.` };
+  }
+  return null;
+}
+
+function markCheckin(kind) {
+  const d = app.lastDose;
+  if (!d) return;
+  const c = app.settings.checkins ?? {};
+  for (const k of Object.keys(c)) if (+k < Date.now() - 2 * R.DAY_MS) delete c[k];  // keep it small
+  c[d.t] = [...new Set([...(c[d.t] ?? []), kind])];
+  app.settings.checkins = c;
+  db.saveSettings(app.settings);
+}
+
+function renderCheckin() {
+  const c = currentCheckin();
+  const card = $('#checkinCard');
+  if (!c) { card.hidden = true; return; }
+  $('#checkinTitle').textContent = c.title;
+  $('#checkinText').textContent = c.text;
+  const bandOk = app.state === 'connected';
+  $('#checkinActions').innerHTML = `<button class="btn" data-checkin="skip">Not now</button>
+    <button class="btn primary" data-checkin="tapping">Finger tapping (10 s)</button>
+    ${bandOk ? '<button class="btn primary" data-checkin="rest">Rest tremor check (30 s)</button>' : ''}`;
+  card.querySelectorAll('[data-checkin]').forEach((b) => b.addEventListener('click', () => {
+    markCheckin(c.kind);
+    card.hidden = true;
+    if (b.dataset.checkin !== 'skip') runner.open(b.dataset.checkin);
+  }));
+  card.hidden = false;
+}
+
+// minutes since the last dose and which check-in (if any) a test belongs to
+function doseContext() {
+  const d = app.lastDose;
+  if (!d) return {};
+  const m = Math.round((Date.now() - d.t) / 60e3);
+  return { minSinceDose: m, doseT: d.t };
 }
 
 // ---------------------------------------------------------------- day view
@@ -222,7 +412,7 @@ async function renderDay() {
   const sum = R.summarize(epochs);
   $('#dayTiles').innerHTML = [
     ['Time monitored', sum ? R.fmtDuration(sum.monitoredMin) : '—'],
-    ['Time with tremor', sum ? `${sum.tremorPct.toFixed(0)}%` : '—'],
+    [sum ? `Tremor-free (${(100 - sum.tremorPct).toFixed(0)}%)` : 'Tremor-free time', sum ? R.fmtDuration(sum.monitoredMin * (1 - sum.tremorPct / 100)) : '—'],
     ['Average severity', sum ? sum.meanSev.toFixed(1) : '—'],
     ['Worst', sum?.peakT ? `${sum.maxSev} at ${fmtClock(sum.peakT)}` : sum ? 'none' : '—'],
   ].map(([k, v]) => `<div class="tile"><div class="tile-label">${k}</div><div class="tile-val">${v}</div></div>`).join('');
@@ -310,7 +500,7 @@ async function renderTests() {
 }
 
 // ---------------------------------------------------------------- report view
-let patternChart;
+let patternChart, freeChart;
 
 async function renderReport() {
   const days = +$('#rangeSelect').value;
@@ -323,12 +513,27 @@ async function renderReport() {
   const median = (a) => (a.length ? a[Math.floor(a.length / 2)] : null);
   const ons = wo.filter((w) => w.onsetMin != null).map((w) => w.onsetMin).sort((a, b) => a - b);
 
+  const freeDays = [];
+  for (let d = start; d < end; d += R.DAY_MS) {
+    const s = R.summarize(epochs.filter((x) => x.t > d && x.t <= d + R.DAY_MS));
+    if (s) freeDays.push({ x: d, y: (s.monitoredMin * (1 - s.tremorPct / 100)) / 60, monitoredH: s.monitoredMin / 60, pct: 100 - s.tremorPct });
+  }
+  const maxFree = Math.max(4, ...freeDays.map((f) => f.monitoredH));
+  freeChart.opts.yMax = Math.ceil(maxFree / 4) * 4;
+  freeChart.opts.yTicks = Array.from({ length: freeChart.opts.yMax / 4 + 1 }, (_, i) => i * 4);
+  freeChart.set({
+    xMin: start, xMax: end,
+    series: [{ type: 'bars', color: '--series-1', barWidth: R.DAY_MS, points: freeDays }],
+    tooltip: (f) => `<b>${fmtDate(f.x)}</b><br>${R.fmtDuration(f.y * 60)} tremor-free (${f.pct.toFixed(0)}%)<br>of ${R.fmtDuration(f.monitoredH * 60)} monitored`,
+    ariaLabel: 'Hours without tremor per day',
+  });
+
   $('#reportMeta').textContent = `${fmtDate(start)} – ${fmtDate(end - 1)} · generated ${new Date().toLocaleString()} · ${app.settings.wrist} wrist`;
   $('#reportTiles').innerHTML = [
     ['Hours monitored', sum ? (sum.monitoredMin / 60).toFixed(0) : '—'],
-    ['Time with tremor', sum ? `${sum.tremorPct.toFixed(0)}%` : '—'],
+    ['Tremor-free per day', freeDays.length ? R.fmtDuration(freeDays.reduce((a, x) => a + x.y, 0) / freeDays.length * 60) : '—'],
     ['Average severity', sum ? sum.meanSev.toFixed(2) : '—'],
-    ['Dose lasts (median)', offs.length ? R.fmtDuration(median(offs)) : '—'],
+    ['Dose lasts (typical)', app.model?.ok ? `${app.model.overall.medianReached ? '' : '≥ '}${R.fmtDuration(app.model.overall.typicalMin)}` : offs.length ? R.fmtDuration(median(offs)) : '—'],
   ].map(([k, v]) => `<div class="tile"><div class="tile-label">${k}</div><div class="tile-val">${v}</div></div>`).join('');
 
   const pattern = R.hourlyPattern(epochs);
@@ -359,7 +564,7 @@ async function renderReport() {
       <tr><th>Typical time until it works</th><td>${R.fmtDuration(median(ons))}</td></tr>
       <tr><th>Typical time until tremor returns</th><td>${R.fmtDuration(median(offs))}</td></tr>
       <tr><th>Tremor came back <em>before</em> the next dose<small>possible "wearing-off"</small></th><td>${returned} of ${wo.length}</td></tr>
-    </table>` : '<p class="empty">Log doses (app button or the band\'s button) to see how long each one lasts.</p>';
+    </table>${learnedHtml(epochs, doses)}` : '<p class="empty">Log doses (app button or the band\'s button) to see how long each one lasts.</p>';
 
   const byKind = TESTS.map((t) => {
     const list = tests.filter((x) => x.kind === t.id).sort((a, b) => a.t - b.t);
@@ -368,7 +573,44 @@ async function renderReport() {
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
     return `<tr><td>${t.name}</td><td>${list.length}</td><td>${avg.toFixed(2)} ${headline(t.id, list[0].result).unit}</td><td>${headline(t.id, list.at(-1).result).text}</td></tr>`;
   }).join('');
-  $('#reportTests').innerHTML = byKind ? `<table class="data"><tr><th>Test</th><th>Times done</th><th>Average</th><th>Latest</th></tr>${byKind}</table>` : '<p class="empty">No active tests in this range.</p>';
+  $('#reportTests').innerHTML = byKind ? `<table class="data"><tr><th>Test</th><th>Times done</th><th>Average</th><th>Latest</th></tr>${byKind}</table>${testsByDoseHtml(tests)}` : '<p class="empty">No active tests in this range.</p>';
+}
+
+// Learned wear-off timing per time of day, and how well the warning would have worked.
+function learnedHtml(epochs, doses) {
+  const m = app.model;
+  if (!m?.ok) return `<p class="muted small" style="margin-top:12px">The personal wear-off model needs at least 4 doses with recordings (has ${m?.overall?.n ?? 0}).</p>`;
+  const fmt = (e) => `${e.medianReached ? '' : '≥ '}${R.fmtDuration(e.typicalMin)}`;
+  const rows = [['All doses', m.overall], ...SLOTS.filter((s) => m.slots[s.id]).map((s) => [s.label, m.slots[s.id]])]
+    .map(([label, e]) => `<tr><td>${label}</td><td>${e.n}</td><td>${R.fmtDuration(e.kickInMin)}</td><td>${fmt(e)}</td><td>${e.earliestMin != null ? R.fmtDuration(e.earliestMin) : '—'}</td><td>${R.fmtDuration(e.warnAfterMin)}</td></tr>`).join('');
+  const b = backtest(epochs, doses);
+  const L = b.learned, F = b.fixedRule;
+  const v = (x, unit = '') => (x == null ? '—' : `${x}${unit}`);
+  const bt = L.returns ? `<h4>How well the warning would have worked</h4>
+    <p class="muted small">Each past dose predicted using only the doses before it, then compared with what happened.</p>
+    <table class="data"><tr><th></th><th>Learned for this patient</th><th>Fixed rule: every dose lasts ${R.fmtDuration(b.fixedRuleMin)}</th></tr>
+      <tr><td>Typical error in when tremor returns</td><td>${v(L.maeMin, ' min')}</td><td>${v(F.maeMin, ' min')}</td></tr>
+      <tr><td>Warned before tremor came back</td><td>${v(L.warnedPct, '%')} of ${L.returns}</td><td>${v(F.warnedPct, '%')} of ${F.returns}</td></tr>
+      <tr><td>Warning came this much earlier (median)</td><td>${v(L.medianLeadMin, ' min')}</td><td>${v(F.medianLeadMin, ' min')}</td></tr>
+      <tr><td>Warned when tremor didn't come back</td><td>${v(L.unneededPct, '%')}</td><td>${v(F.unneededPct, '%')}</td></tr>
+    </table>` : '';
+  return `<h4>Learned dose timing (last 21 days, Kaplan–Meier)</h4>
+    <table class="data"><tr><th>Doses</th><th>n</th><th>Starts working</th><th>Usually wears off</th><th>Earliest (1 in 4)</th><th>Reminder after</th></tr>${rows}</table>${bt}`;
+}
+
+// Test results grouped by time since the dose: shows the dose cycle in active tests too.
+function testsByDoseHtml(tests) {
+  const buckets = [[0, 60, '0–1 h'], [60, 120, '1–2 h'], [120, 180, '2–3 h'], [180, 1e9, '3 h +']];
+  const rows = TESTS.map((t) => {
+    const list = tests.filter((x) => x.kind === t.id && x.context?.minSinceDose != null && x.context.minSinceDose < 6 * 60);
+    if (list.length < 2) return '';
+    const cells = buckets.map(([a, b]) => {
+      const vals = list.filter((x) => x.context.minSinceDose >= a && x.context.minSinceDose < b).map((x) => headline(t.id, x.result).value);
+      return `<td>${vals.length ? `${(vals.reduce((p, q) => p + q, 0) / vals.length).toFixed(1)} <small class="muted">(${vals.length})</small>` : '—'}</td>`;
+    }).join('');
+    return `<tr><td>${t.name} <small class="muted">${headline(t.id, list[0].result).unit}</small></td>${cells}</tr>`;
+  }).join('');
+  return rows ? `<h4>By time since the last dose</h4><table class="data"><tr><th>Test</th>${buckets.map((b) => `<th>${b[2]}</th>`).join('')}</tr>${rows}</table>` : '';
 }
 
 async function exportCsv(kind) {
@@ -398,6 +640,19 @@ async function renderSettings() {
     row('Boot count', s.boot),
     row('Store ID', s.storeId.toString(16).padStart(8, '0')),
   ].join('') : row('Status', 'Not connected');
+  const m = app.model;
+  const notifyState = !('Notification' in window) ? 'not supported by this browser'
+    : Notification.permission === 'granted' && app.settings.notify ? 'on' : Notification.permission === 'denied' ? 'blocked in browser settings' : 'off';
+  $('#reminderInfo').innerHTML = [
+    ...(m?.ok ? [
+      row('Learned from', `${m.overall.n} doses (${m.overall.events} where tremor came back)`),
+      row('Usually wears off after', `${m.overall.medianReached ? '' : 'at least '}${R.fmtDuration(m.overall.typicalMin)}`),
+      row('Reminder after', R.fmtDuration(m.overall.warnAfterMin)),
+      ...SLOTS.filter((s) => m.slots[s.id]).map((s) => row(s.label, `${R.fmtDuration(m.slots[s.id].typicalMin)}, reminder after ${R.fmtDuration(m.slots[s.id].warnAfterMin)}`)),
+    ] : [row('Status', `Learning — ${m?.overall?.n ?? 0} of 4 doses with enough recordings`)]),
+    row('Notifications on this device', notifyState),
+  ].join('');
+  $('#notifyBtn').hidden = notifyState === 'on' || notifyState.startsWith('not supported');
   const [n, unplaced, first] = await Promise.all([db.epochCount(), db.unplacedCount(), db.firstEpochTime()]);
   $('#dataInfo').innerHTML = [
     row('30-second records', n.toLocaleString()),
@@ -432,11 +687,15 @@ function init() {
   ampChart = new Chart($('#liveAmpChart'), { ...sevOpts, height: 160, yMax: 2, yTicks: [0, 1, 2] });
   dayChart = new Chart($('#dayChart'), { ...sevOpts, height: 240 });
   trendChart = new Chart($('#trendChart'), { height: 200, yMin: 0, yMax: 4, yTicks: [0, 1, 2, 3, 4], xFormat: fmtDate, xTicks: (a, b, w) => timeTicks(a, b, w).filter((t) => new Date(t).getHours() === 0) });
+  freeChart = new Chart($('#freeChart'), { height: 200, yMin: 0, yMax: 16, yTicks: [0, 4, 8, 12, 16], yFormat: (h) => `${h} h`, xFormat: fmtDate, xTicks: (a, b, w) => timeTicks(a, b, w).filter((t) => new Date(t).getHours() === 0) });
   patternChart = new Chart($('#patternChart'), { height: 220, yMin: 0, yMax: 4, yTicks: [0, 1, 2, 3, 4], xFormat: (h) => `${String(h).padStart(2, '0')}:00`, xTicks: () => [0, 3, 6, 9, 12, 15, 18, 21] });
 
   runner = new TestRunner($('#modal'), {
     getBand: () => app.band,
-    getContext: () => (app.lastLive && Date.now() - app.lastLive.t < 10000 ? { severity: app.lastLive.severity, ampCm: app.lastLive.ampCm } : {}),
+    getContext: () => ({
+      ...(app.lastLive && Date.now() - app.lastLive.t < 10000 ? { severity: app.lastLive.severity, ampCm: app.lastLive.ampCm } : {}),
+      ...doseContext(),
+    }),
     onSaved: async (t) => { const saved = await db.addTest(t); refreshViews(); return saved; },
   });
   renderTestCards();
@@ -447,6 +706,18 @@ function init() {
   document.querySelector('[data-action=demo]').addEventListener('click', () => connect('demo'));
   $('#doseBtn').addEventListener('click', async () => {
     if (await confirmModal('Log your medicine?', `Record that you took your medicine at ${fmtClock(Date.now())}.`, 'Yes, I took it', true)) logDose();
+  });
+  $('#alertOk').addEventListener('click', dismissAlert);
+  $('#alertDose').addEventListener('click', async () => {
+    if (await confirmModal('Log your medicine?', `Record that you took your medicine at ${fmtClock(Date.now())}.`, 'Yes, I took it', true)) { dismissAlert(); logDose(); }
+  });
+  $('#notifyBtn').addEventListener('click', async () => {
+    if (!('Notification' in window)) { toast('This browser can\'t show notifications.'); return; }
+    const perm = await Notification.requestPermission();
+    app.settings.notify = perm === 'granted';
+    db.saveSettings(app.settings);
+    toast(perm === 'granted' ? 'Notifications on' : 'Notifications not allowed — the in-app reminder still works');
+    renderSettings();
   });
   $('#dayPrev').addEventListener('click', () => { app.dayOffset--; renderDay(); });
   $('#dayNext').addEventListener('click', () => { app.dayOffset = Math.min(0, app.dayOffset + 1); renderDay(); });
@@ -487,6 +758,9 @@ function init() {
   }
 
   setInterval(() => { if (app.view === 'live') { renderHero(); if (!app.lastLive) renderLiveCharts(); } }, 2000);
+  setInterval(() => { renderMedicine(); renderAlert(); renderCheckin(); }, 30000);  // dose clock, reminders
+  setInterval(refreshModel, 10 * 60e3);
+  refreshModel();
   renderConn();
   show(location.hash.slice(1) || 'live');
 
