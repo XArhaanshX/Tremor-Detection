@@ -88,7 +88,66 @@ oscillation riding on a slow arm swing still has a small lever arm.
 | Our own band recordings | the hard cases the datasets don't script: real tooth-brushing, stirring, typing, walking, drinking, imitated tremor while walking | `firmware` `*_rawlog` env + `tools/record.py` + `tools/dsp_cli` |
 | Head-to-head on identical metrics | spectral vs spectral+movement-gate vs ours — same C++ DSP output, only the decision rule differs | built into `eval_pads.py` |
 
-## 5. Claims we can make — and can't
+## 5. Results so far
+
+### 5a. Physical simulation (`make -C firmware/test/host`, 92 checks)
+Brushing (elbow, 28 cm), washing (25 cm), scrubbing (shoulder, 40 cm), shaking a bottle
+(22 cm) and stirring (3 cm circle) each fire the gyro-only spectral rule in **100 %** of
+windows and ours in **0 %**; their effective lever reads 0.21–0.38 m. Tremor detection,
+frequency and amplitude are unchanged; the lever estimate equals the true lever ± the
+gravity term. Axis linearity: 1.00 single-axis, 0.50 circular.
+
+### 5b. PADS, 469 real subjects, both wrists, 11 tasks, 100 280 windows ([full report](results/pads/REPORT.md))
+
+**The detector measures tremor.** Using the neurologist's PD subtype from the diagnosis
+notes (which the detector never sees):
+
+| PD subtype | subjects | rest windows flagged | subjects with any rest detection |
+|---|---:|---:|---:|
+| tremor-dominant | 52 | 16.0 % | 50 % |
+| mixed | 80 | 4.4 % | 16 % |
+| akinetic-rigid | 114 | 1.2 % | 6 % |
+| healthy controls | 79 | 0.07 % | 1.3 % |
+
+A clean gradient from tremor-dominant → mixed → akinetic-rigid → healthy is exactly what a
+real tremor detector should produce. (50 %, not 100 %, for tremor-dominant: 20 s rest
+recordings, medicated outpatients, and both wrists counted — tremor is usually one-sided.)
+
+**The physical premise holds on real patients.** Beats in PD patients at rest sit at an
+effective lever of **median 6.0 cm (10th–90th pct 3.9–13.1 cm)** with axis linearity 0.96 —
+i.e. a few cm from the watch, about one axis, as the model predicts. Voluntary-task beats
+in healthy controls spread wider (median 8.1 cm, 90th pct 17.6 cm).
+
+![lever distribution](results/pads/lever_distribution.png)
+
+**What PADS can't show.** Its scripted tasks (pointing, drinking, finger-to-nose, crossing
+arms, stomping) are *not* the rhythmic activities that break gyro-only detectors: healthy
+controls trigger the spectral rule in only 0.14 % of windows to begin with, so all three
+rules are within 0.02 % of each other there. PADS therefore validates the *cost* side of
+the lever gate — at 15 cm it keeps 92 % of the PD rest-tremor windows (5.58 % vs 6.07 %),
+at 18 cm 96 % — but the *benefit* side (brushing, stirring, washing) is only shown by the
+simulation so far. That is precisely what our own band recordings are for
+(`tools/record.py` protocol).
+
+### 5c. Decision rules compared on identical metrics
+
+| | HC all tasks (false pos.) | PD rest (kept) | tremor-dominant PD rest (kept) |
+|---|---:|---:|---:|
+| spectral (gyro-only, ELENA-style) | 0.14 % | 6.40 % | 18.1 % |
+| spectral + movement gate (2025 open-source style) | 0.14 % | 6.16 % | 17.2 % |
+| **ours (lever + axis)** | **0.12 %** | 5.89 % | 16.0 % |
+
+## 6. What to do next (in order)
+1. Get the sensor wired (it's still `NOT FOUND`), flash `esp32dev_rawlog`, record the
+   protocol in `tools/record.py` (brushing, stirring, washing, typing, walking, drinking,
+   imitated tremor at rest and while walking), score with `tools/eval_recordings.py`.
+   This is the experiment that shows the benefit on real motion.
+2. If brushing/stirring levers on the real band come out > 15 cm as the model predicts,
+   the claim stands; if some sit lower, add the axis-linearity gate (`--min-axis 0.8`)
+   and re-score — the CLI lets you sweep both without reflashing.
+3. Optional third cue for PD-vs-ET: the Tremor Stability Index on the beat's cycle periods.
+
+## 7. Claims we can make — and can't
 
 Can: the first on-device detector that attributes a tremor-band beat to the wrist or the
 arm from the physics of the IMU pair, removing the documented rhythmic-activity false
@@ -100,7 +159,7 @@ Can't (say so in the presentation): clinically validated; per-window ground trut
 wrist-generated — that's what the Tremor Stability Index is for, and it could be added
 later as a third cue); proven in unsupervised daily life.
 
-## 6. Sources
+## 8. Sources
 
 - McNames et al. 2019, *A two-stage tremor detection algorithm for wearable inertial sensors during normal daily activities* — https://pdxscholar.library.pdx.edu/ece_fac/582
 - Evers et al. 2025, *A generalizable and open-source algorithm for real-life monitoring of tremor in Parkinson's disease* — https://pmc.ncbi.nlm.nih.gov/articles/PMC12246068/
