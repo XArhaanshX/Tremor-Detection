@@ -2,6 +2,7 @@
 // Models a patient on 4 doses/day whose tremor returns ~2.5-4 h after each dose,
 // removes the band at night, and does daily activities that mask tremor.
 import { TEST, TEST_STATE } from './protocol.js';
+import { BandWearOffMonitor } from './wearoff.js';
 
 const STORE_ID = 0x51a1d0e0;
 const EPOCH_MS = 30000;
@@ -43,6 +44,7 @@ export class SimBand extends EventTarget {
     this.persist = s;
     this.win = 0;
     this.epochAgg = [];
+    this.monitor = new BandWearOffMonitor();  // same wearing-off rules as the firmware
   }
 
   static supported() { return true; }
@@ -120,6 +122,8 @@ export class SimBand extends EventTarget {
     await new Promise((r) => setTimeout(r, 600));
     if (!this.persist.liveFrom) { this.persist.liveFrom = Date.now(); saveState(this.persist); }
     this.setState('connected');
+    const last = Math.max(-Infinity, ...this.dosesUpTo(Date.now()));
+    if (isFinite(last)) this.monitor.onDose(last);
     this.sendStatus();
     this.timers.push(setInterval(() => this.tickLive(), 1000));
     this.timers.push(setInterval(() => this.sendStatus(), 5000));
@@ -168,6 +172,8 @@ export class SimBand extends EventTarget {
       battery: this.battery(),
     };
     this.emit('live', live);
+    this.monitor.onWindow(now, tremor);
+    if (this.monitor.tick(now)) { this.alertInEpoch = true; this.sendStatus(); }
     this.epochAgg.push(live);
     if (this.test && (this.test.type === TEST.REST || this.test.type === TEST.POSTURAL)) this.test.windows.push(live);
     if (this.test) this.tickTest();
@@ -187,9 +193,9 @@ export class SimBand extends EventTarget {
           ampMaxCm: Math.max(0, ...tr.map((x) => x.ampCm)),
           freqHz: tr.length ? tr.reduce((a, x) => a + x.freqHz, 0) / tr.length : 0,
           activityMg: w.reduce((a, x) => a + x.activityMg, 0) / w.length,
-          flags: (e.flags & ~2) | (this.pendingButton ? 2 : 0),
+          flags: (e.flags & ~2) | (this.pendingButton ? 2 : 0) | (this.alertInEpoch ? 64 : 0),
         });
-        this.pendingButton = false;
+        this.pendingButton = this.alertInEpoch = false;
         this.saveBatch(STORE_ID, [e]).then(() => { this.persist.acked = seq; saveState(this.persist); this.emit('sync', { done: true, received: 1, pending: 0 }); });
       }
       this.epochAgg = [];
@@ -200,7 +206,8 @@ export class SimBand extends EventTarget {
 
   sendStatus() {
     this.status = {
-      proto: 1, fw: 1, timeSynced: true, imuOk: true, storageOk: true, sim: true, testRunning: !!this.test, syncing: true,
+      proto: 2, fw: 2, timeSynced: true, imuOk: true, storageOk: true, sim: true, testRunning: !!this.test, syncing: true,
+      alert: !!this.monitor.active, alertEarly: this.monitor.active === 'early',
       battery: this.battery(), batteryMv: 3950, boot: 1, storeId: STORE_ID,
       nextSeq: this.persist.acked + 1, ackedSeq: this.persist.acked, pending: 0,
     };
@@ -250,6 +257,7 @@ export class SimBand extends EventTarget {
   }
 
   noteDose(t) {  // app logged a dose: the simulated tremor responds to it
+    this.monitor.onDose(t);
     this.persist.extraDoses.push(t);
     this.persist.extraDoses = this.persist.extraDoses.filter((d) => d > Date.now() - 2 * DAY_MS);
     saveState(this.persist);
@@ -257,6 +265,8 @@ export class SimBand extends EventTarget {
 
   pressButton() { this.pendingButton = true; this.noteDose(Date.now()); }
   async setLever(mm) { this.leverMm = mm; }
+  async setWearOff(warnAfterMin, typicalMin) { this.monitor.setModel(warnAfterMin, typicalMin); }
+  async dismissAlert() { this.monitor.dismiss(); this.sendStatus(); }
   async erase() { this.persist = { base: midnight(Date.now()) - 6 * DAY_MS, acked: 0, extraDoses: [], liveFrom: Date.now() }; saveState(this.persist); this.sendStatus(); }
 
   disconnect() {
