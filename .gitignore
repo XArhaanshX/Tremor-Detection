@@ -222,3 +222,4 @@ __marimo__/
 # PlatformIO
 .pio/
 firmware/test/host/build/
+docs/results/pads/windows.csv
