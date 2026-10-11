@@ -8,8 +8,8 @@
 // treating it as a return would bias the estimate, so we use the Kaplan-Meier estimator,
 // the standard tool for time-to-event data with censoring.
 //   typical return  = KM median time to tremor returning
-//   warn after      = KM 25th percentile (by then 1 in 4 doses has worn off), kept at
-//                     least 15 min after the dose usually starts working
+//   warn after      = KM 25th percentile (by then 1 in 4 doses has worn off), at least
+//                     20 min before the usual return and 15 min after it usually starts working
 // Wear-off often differs by time of day (meals, sleep, dose size), so each time-of-day
 // slot gets its own estimate once it has enough doses.
 import { wearOff as doseOutcomes } from './report.js';
@@ -65,8 +65,9 @@ function estimate(outcomes) {
   // time we watched a dose (UI shows this as a lower bound)
   const medianReached = typicalMin != null;
   if (!medianReached) typicalMin = Math.max(...obs.map((o) => o.t));
-  let warnAfterMin = q25 ?? typicalMin - 20;
-  warnAfterMin = Math.max(Math.round(kickInMin + 15), Math.min(warnAfterMin, typicalMin - 10));
+  // warn when 1 in 4 doses has worn off, but always at least 20 min before the usual return
+  let warnAfterMin = Math.min(q25 ?? typicalMin, typicalMin - 20);
+  warnAfterMin = Math.max(Math.round(kickInMin + 15), warnAfterMin);
   return {
     ok: true, n: obs.length, events, censored: obs.length - events, medianReached,
     typicalMin: Math.round(typicalMin), warnAfterMin: Math.round(warnAfterMin), kickInMin: Math.round(kickInMin),
