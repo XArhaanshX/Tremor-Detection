@@ -12,7 +12,7 @@ persistence, movement gating — but each of those pieces already exists:
 | Band power ratio + peak in 3–7 Hz | every detector since the 1990s |
 | Persistence over consecutive windows | McNames et al. 2019 two-stage detector ([PDX](https://pdxscholar.library.pdx.edu/ece_fac/582)) |
 | Per-person narrow frequency range | same paper (< 1.1 % false positives in controls) |
-| Discard windows with voluntary movement (0.5–3 Hz) | Evers/Bloem group's open-source gyroscope detector, 2025 ([PMC12246068](https://pmc.ncbi.nlm.nih.gov/articles/PMC12246068/)) |
+| Discard windows with voluntary movement (0.5–3 Hz) | Timmermans et al.'s open-source gyroscope detector, 2025 ([PMC12246068](https://pmc.ncbi.nlm.nih.gov/articles/PMC12246068/)) |
 | Frequency variability cycle-to-cycle | Tremor Stability Index, di Biase et al., *Brain* 2017 ([OUP](https://academic.oup.com/brain/article/140/7/1820/3892710)) — for PD vs essential tremor |
 | MFCC/cepstral features + small classifier | the 2025 open-source detector; San-Segundo et al. 2020 ([PMC7602495](https://pmc.ncbi.nlm.nih.gov/articles/PMC7602495/)) |
 | Dose-aware baselines / wearing-off | KinetiGraph fluctuation reports; the "dose-aware" idea in DAPTI is a scheduling layer, not a detection algorithm |
@@ -162,7 +162,7 @@ later as a third cue); proven in unsupervised daily life.
 ## 8. Sources
 
 - McNames et al. 2019, *A two-stage tremor detection algorithm for wearable inertial sensors during normal daily activities* — https://pdxscholar.library.pdx.edu/ece_fac/582
-- Evers et al. 2025, *A generalizable and open-source algorithm for real-life monitoring of tremor in Parkinson's disease* — https://pmc.ncbi.nlm.nih.gov/articles/PMC12246068/
+- Timmermans, ..., Bloem, Helmich, Evers 2025, npj Parkinson's Disease 11:205, *A generalizable and open-source algorithm for real-life monitoring of tremor in Parkinson's disease* — https://pmc.ncbi.nlm.nih.gov/articles/PMC12246068/
 - San-Segundo et al. 2020, *Parkinson's Disease Tremor Detection in the Wild Using Wearable Accelerometers* — https://pmc.ncbi.nlm.nih.gov/articles/PMC7602495/
 - di Biase et al. 2017, *Tremor stability index: a new tool for differential diagnosis in tremor syndromes*, Brain — https://academic.oup.com/brain/article/140/7/1820/3892710
 - Varghese et al. 2024, *Machine learning in the Parkinson's disease smartwatch (PADS) dataset*, npj Parkinson's Disease; data: https://physionet.org/content/parkinsons-disease-smartwatch/1.0.0/ (CC BY-NC-SA 4.0)
