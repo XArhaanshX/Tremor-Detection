@@ -1,8 +1,8 @@
 // Offline support: cache the app shell, serve it cache-first, refresh in background.
-const CACHE = 'tremorband-v7';
+const CACHE = 'tremorband-v8';
 const SHELL = [
-  './', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon.svg',
-  'js/app.js', 'js/ble.js', 'js/chart.js', 'js/protocol.js', 'js/report.js', 'js/sim.js', 'js/store.js', 'js/tests.js',
+  './', 'index.html', 'css/style.css', 'css/screen_tests.css', 'manifest.webmanifest', 'icons/icon.svg',
+  'js/app.js', 'js/ble.js', 'js/chart.js', 'js/protocol.js', 'js/report.js', 'js/sim.js', 'js/store.js', 'js/tests.js', 'js/wearoff.js',
 ];
 
 self.addEventListener('install', (e) => {
