@@ -7,6 +7,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: make -C firmware/test/host
       - run: node tools/check_protocol.mjs
+      - run: node tools/test_wearoff.mjs
+      - run: node tools/test_screen_tests.mjs
   firmware:
     runs-on: ubuntu-latest
     steps:
