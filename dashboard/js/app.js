@@ -159,6 +159,7 @@ function renderHero() {
   $('#heroDesc').textContent =
     p.tremor ? `Steady ${p.freqHz.toFixed(1)} Hz shake, about ${p.ampCm.toFixed(1)} cm.`
     : p.candidate ? 'Possible tremor — checking that the beat is steady…'
+    : p.armRhythm ? 'Rhythmic arm movement (like brushing or stirring) — it comes from the elbow or shoulder, not the wrist, so it isn\'t counted.'
     : p.highFreq ? 'A faster shake (6.5–12 Hz) — not the Parkinson\'s rest-tremor pattern.'
     : p.activityMg > 60 ? 'Hand is moving — normal movement isn\'t counted as tremor.'
     : 'Hand is steady.';

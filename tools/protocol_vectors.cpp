@@ -13,8 +13,8 @@ static void emit(const char* kind, const T& s, const char* expect) {
 }
 
 int main() {
-  LivePacket l{123456, 3, LIVE_TREMOR | LIVE_CANDIDATE | LIVE_SIM, 512, 4567, 8901, 731, 1234, 489, 77, 0};
-  emit("live", l, "{\"win\":123456,\"severity\":3,\"tremor\":true,\"candidate\":true,\"sim\":true,\"highFreq\":false,"
+  LivePacket l{123456, 3, LIVE_TREMOR | LIVE_CANDIDATE | LIVE_SIM | LIVE_ARM_RHYTHM, 512, 4567, 8901, 731, 1234, 489, 77, 0};
+  emit("live", l, "{\"win\":123456,\"severity\":3,\"tremor\":true,\"candidate\":true,\"sim\":true,\"highFreq\":false,\"armRhythm\":true,"
                   "\"freqHz\":5.12,\"ampCm\":45.67,\"omega\":8.901,\"ratio\":0.731,\"activityMg\":1234,\"domHz\":4.89,\"battery\":77}");
   EpochRecord r{4242, 1760000000u, 17, 4, 125, 66, 30, 49, 200, 2345, REC_TIME_VALID | REC_BUTTON, 120};
   emit("record", r, "{\"kind\":\"record\",\"seq\":4242,\"t\":1760000000,\"timeValid\":true,\"boot\":17,\"sevMax\":4,"

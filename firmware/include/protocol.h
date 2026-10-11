@@ -49,6 +49,7 @@ enum : uint8_t {
   LIVE_GAP          = 1 << 4,  // samples were lost in this window (FIFO overflow)
   LIVE_TEST_RUNNING = 1 << 5,
   LIVE_SIM          = 1 << 6,  // data comes from the simulated IMU
+  LIVE_ARM_RHYTHM   = 1 << 7,  // strong 4-6 Hz beat, but driven by the arm (lever > gate): not tremor
 };
 
 // EpochRecord.flags

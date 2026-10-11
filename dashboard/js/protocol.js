@@ -14,7 +14,7 @@ export const TEST = { REST: 1, POSTURAL: 2, PRONSUP: 3 };
 export const TEST_STATE = { RUNNING: 1, DONE: 2, ABORTED: 3, ERROR: 4 };
 export const MARK = { BATCH_END: 0xb0, SYNC_DONE: 0xd0 };
 
-export const LIVE = { TREMOR: 1, CANDIDATE: 2, HIGHFREQ: 4, SATURATED: 8, GAP: 16, TEST: 32, SIM: 64 };
+export const LIVE = { TREMOR: 1, CANDIDATE: 2, HIGHFREQ: 4, SATURATED: 8, GAP: 16, TEST: 32, SIM: 64, ARM_RHYTHM: 128 };
 export const REC = { TIME_VALID: 1, BUTTON: 2, HIGHFREQ: 4, GAP: 8, SIM: 16, TEST: 32 };
 export const ST = { TIME_SYNCED: 1, IMU_OK: 2, STORAGE_OK: 4, SIM: 8, TEST: 16, SYNCING: 32 };
 
@@ -33,6 +33,7 @@ export function decodeLive(buf) {
     tremor: !!(flags & LIVE.TREMOR),
     candidate: !!(flags & LIVE.CANDIDATE),
     highFreq: !!(flags & LIVE.HIGHFREQ),
+    armRhythm: !!(flags & LIVE.ARM_RHYTHM),
     saturated: !!(flags & LIVE.SATURATED),
     sim: !!(flags & LIVE.SIM),
     freqHz: v.getUint16(6, true) / 100,

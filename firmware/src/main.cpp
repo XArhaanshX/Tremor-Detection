@@ -215,7 +215,8 @@ static void analyzeWindow() {
   p.severity = r.severity;
   p.flags = (r.confirmed ? LIVE_TREMOR : 0) | (r.candidate ? LIVE_CANDIDATE : 0) |
             (r.high_freq ? LIVE_HIGHFREQ : 0) | (r.saturated ? LIVE_SATURATED : 0) |
-            (r.gap ? LIVE_GAP : 0) | (testType ? LIVE_TEST_RUNNING : 0) | (kSim ? LIVE_SIM : 0);
+            (r.gap ? LIVE_GAP : 0) | (testType ? LIVE_TEST_RUNNING : 0) | (kSim ? LIVE_SIM : 0) |
+            (r.arm_driven ? LIVE_ARM_RHYTHM : 0);
   p.freq_cHz = r.candidate ? clampTo<uint16_t>(r.freq_hz * 100) : 0;
   p.amp_mmx10 = r.candidate ? clampTo<uint16_t>(r.amp_cm * 100) : 0;
   p.omega_mrads = clampTo<uint16_t>(r.omega_amp * 1000);
