@@ -1,7 +1,7 @@
 # Host (PC) build of the portable DSP code + tests.
 CXX ?= g++
 CXXFLAGS = -std=gnu++17 -O2 -Wall -Wextra -I../../include -I../../src
-SRC = ../../src/dsp/fft.cpp ../../src/dsp/tremor.cpp ../../src/dsp/pronsup.cpp
+SRC = ../../src/dsp/fft.cpp ../../src/dsp/tremor.cpp ../../src/dsp/pronsup.cpp ../../src/dsp/wearoff.cpp
 
 all: test
 

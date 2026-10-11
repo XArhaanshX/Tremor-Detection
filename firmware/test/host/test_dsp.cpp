@@ -12,6 +12,7 @@
 #include "../../src/dsp/fft.h"
 #include "../../src/dsp/pronsup.h"
 #include "../../src/dsp/tremor.h"
+#include "../../src/dsp/wearoff.h"
 
 using namespace dsp;
 
@@ -450,6 +451,83 @@ static void testPronSup() {
   CHECK(still.too_few, "still hand gave %d movements", still.movements);
 }
 
+// Feed the wear-off monitor one window per second; tremorFn(minute) says if tremor is confirmed.
+template <typename F>
+static int runWearOff(WearOffMonitor& m, int fromMin, int toMin, F tremorFn, AlertReason* reason) {
+  for (int64_t s = (int64_t)fromMin * 60; s < (int64_t)toMin * 60; s++) {
+    int64_t ms = s * 1000;
+    m.onWindow(ms, tremorFn(s / 60.0));
+    AlertReason r = m.tick(ms);
+    if (r != AlertReason::None) {
+      if (reason) *reason = r;
+      return (int)(s / 60);
+    }
+  }
+  return -1;
+}
+
+static void testWearOff() {
+  printf("Wearing-off warning on the band\n");
+  auto none = [](double) { return false; };
+  {
+    WearOffMonitor m;
+    m.setModel(150, 170);
+    m.onDose(0);
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 0, 300, none, &r);
+    printf("    learned 150 min, no tremor -> time alert at %d min\n", at);
+    CHECK(at == 150 && r == AlertReason::Time, "time alert at %d reason %d", at, (int)r);
+    CHECK(m.active() == AlertReason::Time, "alert not active");
+    runWearOff(m, 150, 181, none, nullptr);
+    CHECK(m.active() == AlertReason::None, "alert did not expire after 30 min");
+  }
+  {
+    WearOffMonitor m;
+    m.setModel(150, 170);
+    m.onDose(0);
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 0, 300, [](double min) { return min >= 90; }, &r);
+    printf("    tremor back at 90 min (earlier than usual) -> early alert at %d min\n", at);
+    CHECK(r == AlertReason::Early && at >= 94 && at <= 96, "early alert at %d reason %d", at, (int)r);
+  }
+  {
+    WearOffMonitor m;
+    m.onDose(0);  // no model yet
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 0, 200, [](double min) { return min < 30; }, &r);
+    printf("    tremor only while the dose kicks in (0-30 min) -> alert %d (none expected)\n", at);
+    CHECK(at == -1, "false alert during kick-in at %d", at);
+    at = runWearOff(m, 200, 400, none, &r);
+    CHECK(at == -1, "alert without model and without tremor at %d", at);
+  }
+  {
+    WearOffMonitor m;
+    m.setModel(120, 140);
+    m.onDose(0);
+    runWearOff(m, 0, 125, none, nullptr);
+    CHECK(m.active() == AlertReason::Time, "expected active alert");
+    m.onDose(125LL * 60000);
+    CHECK(m.active() == AlertReason::None, "new dose did not clear alert");
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 125, 400, none, &r);
+    printf("    new dose at 125 min clears the alert; next alert at %d min\n", at);
+    CHECK(at == 245, "next alert at %d", at);
+    m.onDose(60LL * 60000);  // an older dose arriving late must be ignored
+    CHECK(m.lastDoseMs() == 125LL * 60000, "older dose replaced newer one");
+  }
+  {
+    WearOffMonitor m;
+    m.setModel(150, 170);
+    m.onDose(0);
+    // band taken off at 40 min (no windows at all) and put back on at 100 min with tremor:
+    // must wait for enough observed data before calling it
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 0, 40, none, &r);
+    for (int64_t s = 100 * 60; s < 101 * 60; s++) { m.onWindow(s * 1000, true); r = m.tick(s * 1000); if (r != AlertReason::None) { at = (int)(s / 60); break; } }
+    CHECK(at == -1, "alert after only 1 min of data at %d", at);
+  }
+}
+
 int main() {
   testFFT();
   testSeverityBins();
@@ -464,6 +542,7 @@ int main() {
   testConsistency();
   testLever();
   testPronSup();
+  testWearOff();
   printf("\n%d passed, %d failed\n", g_pass, g_fail);
   return g_fail ? 1 : 0;
 }
