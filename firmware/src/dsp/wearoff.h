@@ -42,6 +42,12 @@ class WearOffMonitor {
   uint16_t warnAfterMin() const { return warn_after_min_; }
   uint16_t typicalMin() const { return typical_min_; }
   float recentTremorFraction() const;
+  // A time-based warning is only useful until shortly after the usual wear-off time
+  // (e.g. the band hears about a dose late, when the phone reconnects hours after).
+  int lateLimitMin() const {
+    int t = typical_min_ > warn_after_min_ ? typical_min_ : warn_after_min_;
+    return t + 30 < 6 * 60 ? t + 30 : 6 * 60;
+  }
 
  private:
   static constexpr int kMinutes = 30;  // ring of per-minute tremor counts

@@ -184,7 +184,7 @@ export class BandWearOffMonitor {
     const since = (t - this.dose) / 60e3;
     let start = null;
     if (since >= 45 && this.recentFraction(t) >= 0.5) start = 'early';
-    else if (this.warnAfter > 0 && since >= this.warnAfter && since < 360) start = 'time';
+    else if (this.warnAfter > 0 && since >= this.warnAfter && since < Math.min(360, Math.max(this.typical, this.warnAfter) + 30)) start = 'time';
     if (start) { this.alerted = true; this.active = start; this.activeSince = t; }
     return start;
   }

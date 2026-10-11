@@ -53,7 +53,7 @@ AlertReason WearOffMonitor::tick(int64_t now_ms) {
   AlertReason start = AlertReason::None;
   if (since_min >= cfg_.early_min_after_dose && recentTremorFraction() >= cfg_.early_fraction)
     start = AlertReason::Early;  // tremor is already back
-  else if (warn_after_min_ > 0 && since_min >= warn_after_min_ && since_min < 6 * 60)
+  else if (warn_after_min_ > 0 && since_min >= warn_after_min_ && since_min < lateLimitMin())
     start = AlertReason::Time;   // about to wear off, going by this patient's history
 
   if (start != AlertReason::None) {

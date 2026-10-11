@@ -516,6 +516,16 @@ static void testWearOff() {
     CHECK(m.lastDoseMs() == 125LL * 60000, "older dose replaced newer one");
   }
   {
+    // the band hears about a dose 4 h 20 min late (phone reconnected): no stale warning
+    WearOffMonitor m;
+    m.setModel(174, 184);
+    m.onDose(0);
+    AlertReason r = AlertReason::None;
+    int at = runWearOff(m, 260, 400, none, &r);
+    printf("    dose reported 260 min late (usual wear-off 184 min) -> alert %d (none expected)\n", at);
+    CHECK(at == -1, "stale time alert at %d", at);
+  }
+  {
     WearOffMonitor m;
     m.setModel(150, 170);
     m.onDose(0);
