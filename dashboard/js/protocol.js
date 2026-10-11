@@ -9,14 +9,14 @@ export const UUID = {
   test:    'd2e60006-ed8b-45e3-b151-051e61e017ff',
 };
 
-export const CMD = { SET_TIME: 0x01, SYNC: 0x02, ACK: 0x03, TEST_START: 0x10, TEST_ABORT: 0x11, SET_LEVER: 0x20, ERASE: 0x7f };
+export const CMD = { SET_TIME: 0x01, SYNC: 0x02, ACK: 0x03, TEST_START: 0x10, TEST_ABORT: 0x11, SET_LEVER: 0x20, DOSE: 0x21, SET_WEAROFF: 0x22, ALERT_DISMISS: 0x23, ERASE: 0x7f };
 export const TEST = { REST: 1, POSTURAL: 2, PRONSUP: 3 };
 export const TEST_STATE = { RUNNING: 1, DONE: 2, ABORTED: 3, ERROR: 4 };
 export const MARK = { BATCH_END: 0xb0, SYNC_DONE: 0xd0 };
 
 export const LIVE = { TREMOR: 1, CANDIDATE: 2, HIGHFREQ: 4, SATURATED: 8, GAP: 16, TEST: 32, SIM: 64, ARM_RHYTHM: 128 };
-export const REC = { TIME_VALID: 1, BUTTON: 2, HIGHFREQ: 4, GAP: 8, SIM: 16, TEST: 32 };
-export const ST = { TIME_SYNCED: 1, IMU_OK: 2, STORAGE_OK: 4, SIM: 8, TEST: 16, SYNCING: 32 };
+export const REC = { TIME_VALID: 1, BUTTON: 2, HIGHFREQ: 4, GAP: 8, SIM: 16, TEST: 32, ALERT: 64 };
+export const ST = { TIME_SYNCED: 1, IMU_OK: 2, STORAGE_OK: 4, SIM: 8, TEST: 16, SYNCING: 32, ALERT: 64, ALERT_EARLY: 128 };
 
 export const SEVERITY_LABELS = ['Normal', 'Slight', 'Mild', 'Moderate', 'Severe'];
 
@@ -82,6 +82,8 @@ export function decodeStatus(buf) {
     sim: !!(flags & ST.SIM),
     testRunning: !!(flags & ST.TEST),
     syncing: !!(flags & ST.SYNCING),
+    alert: !!(flags & ST.ALERT),            // wearing-off warning active on the band
+    alertEarly: !!(flags & ST.ALERT_EARLY), // ...because tremor is already back
     battery: pct(v.getUint8(3)),
     batteryMv: v.getUint16(4, true) || null,
     boot: v.getUint16(6, true),
@@ -138,4 +140,7 @@ export function cmdAck(seq) { const v = bytes(5); v.setUint8(0, CMD.ACK); v.setU
 export function cmdTestStart(type, seconds) { const v = bytes(4); v.setUint8(0, CMD.TEST_START); v.setUint8(1, type); v.setUint16(2, seconds, true); return v.buffer; }
 export function cmdTestAbort() { return new Uint8Array([CMD.TEST_ABORT]).buffer; }
 export function cmdSetLever(mm) { const v = bytes(3); v.setUint8(0, CMD.SET_LEVER); v.setUint16(1, mm, true); return v.buffer; }
+export function cmdDose(unixS) { const v = bytes(5); v.setUint8(0, CMD.DOSE); v.setUint32(1, unixS >>> 0, true); return v.buffer; }
+export function cmdSetWearOff(warnAfterMin, typicalMin) { const v = bytes(5); v.setUint8(0, CMD.SET_WEAROFF); v.setUint16(1, warnAfterMin, true); v.setUint16(3, typicalMin, true); return v.buffer; }
+export function cmdAlertDismiss() { return new Uint8Array([CMD.ALERT_DISMISS]).buffer; }
 export function cmdErase() { return new Uint8Array([CMD.ERASE, 0xa5, 0x5a]).buffer; }

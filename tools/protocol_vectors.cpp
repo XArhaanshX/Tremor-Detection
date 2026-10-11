@@ -21,8 +21,8 @@ int main() {
                     "\"sevMean\":2.5,\"tremorPct\":66,\"nWindows\":30,\"freqHz\":4.9,\"activityMg\":800,\"ampCm\":23.45,\"ampMaxCm\":12}");
   SyncMarker m{MARK_BATCH_END, 99999};
   emit("record", m, "{\"kind\":\"marker\",\"marker\":176,\"value\":99999}");
-  StatusPacket s{PROTO_VERSION, 1, ST_TIME_SYNCED | ST_IMU_OK | ST_STORAGE_OK, 255, 0, 9, 0xDEADBEEF, 501, 480};
-  emit("status", s, "{\"proto\":1,\"fw\":1,\"timeSynced\":true,\"imuOk\":true,\"storageOk\":true,\"sim\":false,"
+  StatusPacket s{1, 1, ST_TIME_SYNCED | ST_IMU_OK | ST_STORAGE_OK | ST_ALERT | ST_ALERT_EARLY, 255, 0, 9, 0xDEADBEEF, 501, 480};
+  emit("status", s, "{\"proto\":1,\"fw\":1,\"timeSynced\":true,\"imuOk\":true,\"storageOk\":true,\"alert\":true,\"alertEarly\":true,\"sim\":false,"
                     "\"battery\":null,\"batteryMv\":null,\"boot\":9,\"storeId\":3735928559,\"nextSeq\":501,\"ackedSeq\":480,\"pending\":20}");
   TestTremorResult t{TEST_REST_TREMOR, TEST_STATE_DONE, 28, 93, 110, 3, 51, 0, 1520, 2210, 3456, 812};
   emit("test", t, "{\"type\":1,\"state\":2,\"nWindows\":28,\"tremorPct\":93,\"sevMean\":2.2,\"sevMax\":3,\"freqHz\":5.1,"
