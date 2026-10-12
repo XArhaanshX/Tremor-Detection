@@ -51,7 +51,7 @@ export class Chart {
     this.w = width - pad.l - pad.r;
     this.h = height - pad.t - pad.b;
     const ink = { grid: css(host, '--grid'), axis: css(host, '--axis'), muted: css(host, '--text-muted'), text: css(host, '--text-2') };
-    g.font = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+    g.font = '12px "Segoe UI", system-ui, -apple-system, sans-serif';
 
     // grid + y labels
     g.textAlign = 'right';

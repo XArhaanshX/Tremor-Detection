@@ -5,32 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>TremorBand</title>
   <meta name="description" content="All-day Parkinson's tremor monitoring from a wristband — live, offline, on your device.">
-  <meta name="theme-color" content="#3f7592">
+  <meta name="theme-color" content="#2f6f73">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/screen_tests.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <img src="icons/icon.svg" alt="" width="28" height="28">
-      <span>TremorBand</span>
+  <aside class="side">
+    <div class="side-brand">
+      <img src="icons/icon.svg" alt="" width="30" height="30">
+      <div class="brand-text"><span class="brand-name">TremorBand</span><span class="brand-sub">Tremor monitoring</span></div>
     </div>
-    <div class="conn">
-      <span class="pill" id="connPill" data-state="disconnected"><span class="dot"></span><span id="connText">Not connected</span></span>
-      <span class="sub" id="syncText"></span>
-    </div>
-    <button class="btn primary" id="connectBtn">Connect band</button>
-  </header>
 
-  <nav class="tabs" role="tablist">
-    <button role="tab" data-view="live" aria-selected="true">Live</button>
-    <button role="tab" data-view="day">Day</button>
-    <button role="tab" data-view="tests">Tests</button>
-    <button role="tab" data-view="report">Report</button>
-    <button role="tab" data-view="settings">Settings</button>
-  </nav>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" data-view="live" aria-selected="true" title="Live"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span class="lbl">Live</span></button>
+      <button role="tab" data-view="day" title="Day"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg><span class="lbl">Day</span></button>
+      <button role="tab" data-view="tests" title="Tests"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg><span class="lbl">Tests</span></button>
+      <button role="tab" data-view="report" title="Report"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg><span class="lbl">Report</span></button>
+      <button role="tab" data-view="settings" title="Settings"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="lbl">Settings</span></button>
+    </nav>
+
+    <div class="side-conn">
+      <div class="conn-state">
+        <span class="pill" id="connPill" data-state="disconnected"><span class="dot"></span><span id="connText">Not connected</span></span>
+        <span class="sub" id="syncText"></span>
+      </div>
+      <button class="btn" id="connectBtn" title="Connect band">Connect band</button>
+    </div>
+
+    <button class="fab" id="doseBtn" aria-label="Log that I just took my medicine" title="I took my medicine"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z"/><path d="m8.5 8.5 7 7"/></svg><span class="lbl">I took my medicine</span></button>
+  </aside>
 
   <main>
     <!-- wearing-off warning: shown on every tab while active -->
@@ -47,6 +52,7 @@
 
     <!-- LIVE -->
     <section class="view" id="view-live">
+      <h1 class="page-title">Right now</h1>
       <div class="card onboarding" id="onboarding">
         <h2>Welcome</h2>
         <p>Wear the band on the wrist of the arm that shakes more, switch it on, then press Connect.
@@ -133,6 +139,7 @@
 
     <!-- TESTS -->
     <section class="view" id="view-tests" hidden>
+      <h1 class="page-title">Check-ups</h1>
       <p class="lead">Short check-ups that add to the all-day monitoring. Do them a few times a day — for example just before a dose and an hour after.</p>
       <div class="test-grid" id="testCards"></div>
       <div class="card">
@@ -195,6 +202,7 @@
 
     <!-- SETTINGS -->
     <section class="view" id="view-settings" hidden>
+      <h1 class="page-title">Settings</h1>
       <div class="card">
         <h3>Hand size</h3>
         <label class="field">Wrist to middle of the palm: <strong id="leverVal">10 cm</strong>
@@ -230,8 +238,6 @@
       </div>
     </section>
   </main>
-
-  <button class="fab" id="doseBtn" aria-label="Log that I just took my medicine">I took my medicine</button>
 
   <div class="modal" id="modal" hidden role="dialog" aria-modal="true"><div class="modal-box"></div></div>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
