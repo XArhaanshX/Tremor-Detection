@@ -84,6 +84,12 @@ bool Mpu6050::begin(int sda, int scl, uint32_t hz) {
     if (who_ != 0x70 && who_ != 0x72 && who_ != 0x98) return false;
     Serial.printf("[imu] WARNING: WHO_AM_I=0x%02X (clone), continuing\n", who_);
   }
+  configure();
+  return true;
+}
+
+// Full register setup. Also re-run whenever the sensor turns out to have rebooted.
+void Mpu6050::configure() {
   writeReg(REG_PWR_MGMT_1, 0x80);  // device reset
   delay(100);
   writeReg(REG_PWR_MGMT_1, 0x01);  // wake, clock = PLL on gyro X (more stable than 8 MHz RC)
@@ -101,11 +107,30 @@ bool Mpu6050::begin(int sda, int scl, uint32_t hz) {
   writeReg(REG_INT_ENABLE, INT_DATA_RDY);  // latch "new sample ready" (INT pin itself unused)
   readReg(REG_INT_STATUS);
   haveLast_ = false;
-  return true;
+  lastCheckMs_ = millis();
+}
+
+// A brief power dip (e.g. a loose VCC/GND jumper while the arm shakes) reboots the sensor
+// to factory defaults: 1 kHz+ sample rate, +-250 dps, +-2 g. Every value would then be
+// mis-scaled, so check that our settings are still there.
+bool Mpu6050::configLost() {
+  uint8_t div, gyro;
+  if (!readBytes(REG_SMPLRT_DIV, &div, 1) || !readBytes(REG_GYRO_CONFIG, &gyro, 1)) { errors_++; return false; }
+  return div != MPU_SMPLRT_DIV || (gyro & 0x18) != (MPU_GYRO_FS_SEL << 3);
 }
 
 int Mpu6050::read(ImuSample* out, int max, bool* overflow) {
   *overflow = false;
+  if (millis() - lastCheckMs_ >= 500) {
+    lastCheckMs_ = millis();
+    if (configLost()) {
+      resets_++;
+      Serial.println("[imu] sensor rebooted (power glitch?) - reconfiguring; check the VCC/GND wires");
+      configure();
+      *overflow = true;  // drop the window: it may hold mis-scaled samples
+      return 0;
+    }
+  }
   uint8_t st;
   if (!readBytes(REG_INT_STATUS, &st, 1)) { errors_++; return 0; }
   if (!(st & INT_DATA_RDY)) return 0;  // no new sample yet

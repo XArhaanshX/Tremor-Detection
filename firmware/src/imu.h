@@ -21,8 +21,11 @@ class Mpu6050 {
   uint32_t samples() const { return samples_; }   // read from the sensor
   uint32_t filled() const { return filled_; }     // interpolated after a lost read
   uint32_t errors() const { return errors_; }     // failed I2C transfers
+  uint32_t resets() const { return resets_; }     // sensor found rebooted (power glitch) and reconfigured
 
  private:
+  void configure();
+  bool configLost();
   void writeReg(uint8_t reg, uint8_t val);
   uint8_t readReg(uint8_t reg);
   bool readBytes(uint8_t reg, uint8_t* buf, uint8_t len);
@@ -30,7 +33,8 @@ class Mpu6050 {
   ImuSample last_{};
   uint32_t lastUs_ = 0;
   bool haveLast_ = false;
-  uint32_t samples_ = 0, filled_ = 0, errors_ = 0;
+  uint32_t samples_ = 0, filled_ = 0, errors_ = 0, resets_ = 0;
+  uint32_t lastCheckMs_ = 0;
 };
 
 // Synthetic patient for bench testing without a sensor (build flag SIMULATE_IMU).
@@ -45,6 +49,7 @@ class SimImu {
   uint32_t samples() const { return n_; }
   uint32_t filled() const { return 0; }
   uint32_t errors() const { return 0; }
+  uint32_t resets() const { return 0; }
 
  private:
   uint32_t last_us_ = 0;
