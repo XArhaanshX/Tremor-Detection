@@ -24,6 +24,7 @@
       <button role="tab" data-view="tests" title="Tests"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg><span class="lbl">Tests</span></button>
       <button role="tab" data-view="report" title="Report"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg><span class="lbl">Report</span></button>
       <button role="tab" data-view="algorithms" title="Compare algorithms"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="3" y1="20" x2="21" y2="20"/></svg><span class="lbl">Compare</span></button>
+      <button role="tab" data-view="versus" title="Live head-to-head of the algorithms"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="15" cy="6" r="2"/><line x1="3" y1="12" x2="21" y2="12"/><circle cx="8" cy="12" r="2"/><line x1="3" y1="18" x2="21" y2="18"/><circle cx="18" cy="18" r="2"/></svg><span class="lbl">Versus</span></button>
       <button role="tab" data-view="settings" title="Settings"><svg class="ico" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg><span class="lbl">Settings</span></button>
     </nav>
 
@@ -237,6 +238,59 @@
         <p class="muted small">A CSV with columns <code>t,ax,ay,az,gx,gy,gz</code> (accelerometer in g, gyroscope in rad/s, 100 Hz) — what <code>tools/record.py</code> and <code>tools/experiment.py</code> save from the band.</p>
         <input type="file" id="recFile" accept=".csv,.txt" class="btn">
         <div id="recResult"></div>
+      </div>
+    </section>
+
+    <!-- VERSUS: the four detectors live, side by side -->
+    <section class="view" id="view-versus" hidden>
+      <h2>Live head-to-head</h2>
+      <p class="lead">All four detectors judge the samples your band is measuring right now, window by window. Our detector also runs on the band's own chip, and the two answers are compared every second, so this screen can't quietly disagree with the band.</p>
+
+      <div class="card vs-controls">
+        <div class="row">
+          <button class="btn primary" id="vsStart" disabled>Start with my band</button>
+          <button class="btn" id="vsSim">Play a simulated wrist</button>
+        </div>
+        <p class="muted small" id="vsSource"></p>
+        <div class="vs-label-q"><strong>What are you doing?</strong> <span class="muted small">Your answer is the ground truth every detector is scored against. Change it as soon as you switch activity.</span></div>
+        <div class="vs-segs" id="vsLabels" role="group" aria-label="What are you doing?"></div>
+      </div>
+
+      <div class="tiles four vs-trust" id="vsTrust"></div>
+
+      <div class="card">
+        <div class="card-head"><h3>Right now: what each detector hears</h3><span class="muted small" id="vsNowNote"></span></div>
+        <div id="vsNow" class="fmap-host"></div>
+        <p class="muted small">Curve: how the wrist's rotation in this 2.56-second window is spread over frequency. Boxes: the band each detector listens to. Dot: the peak it picked — filled when it says tremor, hollow while it waits for a second matching window, grey when it rejected it. Dashed lines: where the middle half of real Parkinson's tremor sits (PADS dataset).</p>
+        <div class="vs-cards" id="vsVerdicts"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Last 60 seconds</h3><span class="muted small">hover for every detector's answer</span></div>
+        <div id="vsLanes" class="lanes-host"></div>
+        <p class="muted small">Shaded: the 4–6 Hz Parkinson's band. Dots: windows a detector called tremor, at the frequency it reported.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Scoreboard, this session</h3><span class="muted small" id="vsScoreNote"></span></div>
+        <div class="cmp-bars" id="vsScore"></div>
+        <details class="table-toggle" id="vsTableToggle"><summary>Every window (table)</summary><div id="vsTable"></div></details>
+        <div class="row">
+          <button class="btn" id="vsCsv">Download samples (CSV)</button>
+          <button class="btn" id="vsWinCsv">Download window results (CSV)</button>
+        </div>
+        <p class="muted small">The samples file loads in Compare → “Run all four on a recording” and in <code>tools/dsp_cli</code>, so every number on this screen can be reproduced offline.</p>
+      </div>
+
+      <div class="card">
+        <h3>Why you can trust this screen</h3>
+        <ul class="vs-why">
+          <li><strong>Same input.</strong> Every detector gets exactly the samples the band analyses, streamed live with a sample counter. Lost samples are counted and shown, never patched over; windows they touch aren't judged.</li>
+          <li><strong>Same windows.</strong> The band marks where its analysis window starts, so this page cuts the identical 2.56-second windows, one per second.</li>
+          <li><strong>Checked against the chip.</strong> Our detector runs on the band and on this page. Every window, both answers (tremor, arm rhythm, frequency) are compared — the “Band chip = this page” tile.</li>
+          <li><strong>Same rules as the published numbers.</strong> The four detectors use the same code and thresholds as the Compare tab and <code>tools/eval_pads.py</code>; <code>tools/check_live.mjs</code> checks this screen's pipeline against the firmware's C++.</li>
+          <li><strong>Your labels are the ground truth</strong>, and all four are scored on the same windows. Windows where you changed the label mid-way are left out.</li>
+        </ul>
       </div>
     </section>
 

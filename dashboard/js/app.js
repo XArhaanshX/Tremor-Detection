@@ -6,6 +6,7 @@ import { TESTS, TestRunner, byId, headline, detailRows } from './tests.js';
 import * as R from './report.js';
 import { learnModel, predict, backtest, SLOTS } from './wearoff.js';
 import { renderAlgorithms } from './compare.js';
+import { initVersus, attachVersus, renderVersus } from './versus.js';
 import { SEVERITY_LABELS } from './protocol.js';
 
 const $ = (s) => document.querySelector(s);
@@ -62,6 +63,7 @@ async function saveBatch(storeId, records) {
 }
 
 function attach(band) {
+  attachVersus(band);
   band.addEventListener('state', (e) => onState(e.detail));
   band.addEventListener('live', (e) => onLive(e.detail));
   band.addEventListener('status', (e) => {
@@ -676,6 +678,7 @@ function renderView(v) {
   if (v === 'report') renderReport();
   if (v === 'settings') renderSettings();
   if (v === 'algorithms') renderAlgorithms();
+  if (v === 'versus') renderVersus();
 }
 
 function show(v) {
@@ -706,6 +709,7 @@ function init() {
     onSaved: async (t) => { const saved = await db.addTest(t); refreshViews(); return saved; },
   });
   renderTestCards();
+  initVersus({ getBand: () => app.band, isVisible: () => app.view === 'versus', toast });
 
   document.querySelectorAll('.tabs [data-view]').forEach((b) => b.addEventListener('click', () => show(b.dataset.view)));
   $('#connectBtn').addEventListener('click', () => (app.band ? disconnect() : connect('ble')));
