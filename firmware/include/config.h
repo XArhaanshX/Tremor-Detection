@@ -24,7 +24,7 @@
 #endif
 
 #define BATT_DIVIDER  2.0f   // 100k/100k
-#define I2C_HZ        400000 // MPU-6050 supports 400 kHz fast mode
+#define I2C_HZ        100000 // 100 kHz: robust over jumper wires / clone sensors; 100 Hz x 12 B needs ~1.2 KB/s, 100 kHz gives ~10 KB/s
 
 // ---------------------------------------------------------------- sensor
 // MPU-6050: sample rate = 1 kHz / (1 + SMPLRT_DIV) when the DLPF is enabled.
