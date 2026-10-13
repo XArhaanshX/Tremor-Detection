@@ -5,6 +5,7 @@ import { Chart, fmtClock, fmtDate, timeTicks } from './chart.js';
 import { TESTS, TestRunner, byId, headline, detailRows } from './tests.js';
 import * as R from './report.js';
 import { learnModel, predict, backtest, SLOTS } from './wearoff.js';
+import { renderAlgorithms } from './compare.js';
 import { SEVERITY_LABELS } from './protocol.js';
 
 const $ = (s) => document.querySelector(s);
@@ -674,6 +675,7 @@ function renderView(v) {
   if (v === 'tests') renderTests();
   if (v === 'report') renderReport();
   if (v === 'settings') renderSettings();
+  if (v === 'algorithms') renderAlgorithms();
 }
 
 function show(v) {
