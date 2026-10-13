@@ -44,6 +44,7 @@ static int ringHead = 0, ringFilled = 0, sinceHop = 0, satCountdown = 0;
 static bool gapPending = false;
 static float winG[3][WINDOW_N], winA[3][WINDOW_N];  // linearised copy for analysis
 static uint32_t windowCount = 0;
+static dsp::WindowResult lastResult;  // for the serial status line
 
 // epoch bookkeeping
 static uint32_t epochStartMs = 0;
@@ -210,6 +211,7 @@ static void analyzeWindow() {
   const float* g[3] = {winG[0], winG[1], winG[2]};
   const float* a[3] = {winA[0], winA[1], winA[2]};
   dsp::WindowResult r = detector.analyze(g, a, satCountdown > 0, gapPending);
+  lastResult = r;
   gapPending = false;
   windowCount++;
   epoch.add(r);
@@ -511,6 +513,25 @@ static void serviceLed() {
   led(millis() % period < 15);
 }
 
+// Every 5 s on serial: is the sensor delivering 100 samples/s, and what does the detector
+// see right now? (pio device monitor)
+static void serviceStatusLine() {
+  static uint32_t lastMs = 0, lastSamples = 0, lastFilled = 0, lastErrors = 0;
+  if (millis() - lastMs < 5000) return;
+  float dt = (millis() - lastMs) / 1000.0f;
+  lastMs = millis();
+  uint32_t s = imu.samples(), f = imu.filled(), e = imu.errors();
+  const dsp::WindowResult& r = lastResult;
+  const char* verdict = r.confirmed ? "TREMOR" : r.arm_driven ? "arm rhythm (not tremor)"
+                        : r.candidate ? "possible tremor" : r.high_freq ? "faster shake (not PD band)"
+                        : r.freq_hz > 0 ? "weak/irregular 4-6 Hz content" : "no 4-6 Hz beat";
+  Serial.printf("[status] sensor %.0f samples/s (+%lu filled, %lu bus errors) | strongest motion %.1f Hz | "
+                "4-6 Hz peak %.2f Hz, share %.0f%%, strength %.2f rad/s, steady %.2f, lever %.0f cm | movement %.0f mg -> %s\n",
+                (s - lastSamples) / dt, (unsigned long)(f - lastFilled), (unsigned long)(e - lastErrors), r.dom_freq_hz,
+                r.freq_hz, r.ratio * 100, r.omega_amp, r.steadiness, r.lever_eff_m * 100, r.activity_mg, verdict);
+  lastSamples = s; lastFilled = f; lastErrors = e;
+}
+
 // ---------------------------------------------------------------- setup / loop
 void setup() {
   Serial.begin(115200);
@@ -568,6 +589,7 @@ void loop() {
   serviceButton();
   serviceAlert();
   serviceLed();
+  if (imuOk) serviceStatusLine();
   if (ble::connected() && millis() - lastStatusMs > 5000) sendStatus();
   delay(2);
 }
