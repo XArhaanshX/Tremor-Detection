@@ -278,12 +278,12 @@ static void serviceImu() {
   bool overflow = false;
   int n = imu.read(buf, 64, &overflow);
   if (overflow) {
-    // samples were lost: restart the window so no analysis spans the gap
+    // data was missing (or mis-scaled after a sensor reboot): restart the window so no analysis spans it
     ringFilled = 0;
     sinceHop = 0;
     gapPending = true;
     detector.reset();
-    Serial.println("[imu] FIFO overflow, window restarted");
+    Serial.println("[imu] data gap, analysis window restarted");
   }
   for (int i = 0; i < n; i++) pushSample(buf[i]);
 }
@@ -516,20 +516,21 @@ static void serviceLed() {
 // Every 5 s on serial: is the sensor delivering 100 samples/s, and what does the detector
 // see right now? (pio device monitor)
 static void serviceStatusLine() {
-  static uint32_t lastMs = 0, lastSamples = 0, lastFilled = 0, lastErrors = 0;
+  static uint32_t lastMs = 0, lastSamples = 0, lastFilled = 0, lastErrors = 0, lastResets = 0;
   if (millis() - lastMs < 5000) return;
   float dt = (millis() - lastMs) / 1000.0f;
   lastMs = millis();
-  uint32_t s = imu.samples(), f = imu.filled(), e = imu.errors();
+  uint32_t s = imu.samples(), f = imu.filled(), e = imu.errors(), rs = imu.resets();
   const dsp::WindowResult& r = lastResult;
   const char* verdict = r.confirmed ? "TREMOR" : r.arm_driven ? "arm rhythm (not tremor)"
                         : r.candidate ? "possible tremor" : r.high_freq ? "faster shake (not PD band)"
                         : r.freq_hz > 0 ? "weak/irregular 4-6 Hz content" : "no 4-6 Hz beat";
-  Serial.printf("[status] sensor %.0f samples/s (+%lu filled, %lu bus errors) | strongest motion %.1f Hz | "
+  Serial.printf("[status] sensor %.0f samples/s (+%lu filled, %lu bus errors, %lu sensor reboots) | strongest motion %.1f Hz | "
                 "4-6 Hz peak %.2f Hz, share %.0f%%, strength %.2f rad/s, steady %.2f, lever %.0f cm | movement %.0f mg -> %s\n",
-                (s - lastSamples) / dt, (unsigned long)(f - lastFilled), (unsigned long)(e - lastErrors), r.dom_freq_hz,
+                (s - lastSamples) / dt, (unsigned long)(f - lastFilled), (unsigned long)(e - lastErrors),
+                (unsigned long)(rs - lastResets), r.dom_freq_hz,
                 r.freq_hz, r.ratio * 100, r.omega_amp, r.steadiness, r.lever_eff_m * 100, r.activity_mg, verdict);
-  lastSamples = s; lastFilled = f; lastErrors = e;
+  lastSamples = s; lastFilled = f; lastErrors = e; lastResets = rs;
 }
 
 // ---------------------------------------------------------------- setup / loop
