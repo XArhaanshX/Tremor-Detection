@@ -233,8 +233,13 @@ static void analyzeWindow() {
   ble::sendLive(p);
 
   if (r.confirmed)
-    Serial.printf("[tremor] sev %d  %.2f Hz  %.1f cm  ratio %.2f\n", r.severity, r.freq_hz,
-                  r.amp_cm, r.ratio);
+    Serial.printf("[tremor] sev %d  %.2f Hz  %.1f cm  ratio %.2f  lever %.0f cm\n", r.severity, r.freq_hz,
+                  r.amp_cm, r.ratio, r.lever_eff_m * 100);
+  else if (r.arm_driven)
+    Serial.printf("[arm-rhythm] %.2f Hz beat, lever %.0f cm > %.0f cm: made by the arm, not counted\n",
+                  r.freq_hz, r.lever_eff_m * 100, detector.config().max_lever_eff_m * 100);
+  else if (r.candidate)
+    Serial.printf("[beat] %.2f Hz, lever %.0f cm: checking it's steady...\n", r.freq_hz, r.lever_eff_m * 100);
 }
 
 static void pushSample(const ImuSample& s) {
