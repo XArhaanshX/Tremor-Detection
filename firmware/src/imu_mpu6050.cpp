@@ -8,6 +8,7 @@ namespace {
 constexpr uint8_t ADDR = 0x68;  // AD0 low (GY-521 default)
 constexpr uint8_t REG_SMPLRT_DIV = 0x19;
 constexpr uint8_t REG_CONFIG = 0x1A;
+constexpr uint8_t REG_ACCEL_CONFIG2 = 0x1D;  // MPU-6500/9250 family only
 constexpr uint8_t REG_GYRO_CONFIG = 0x1B;
 constexpr uint8_t REG_ACCEL_CONFIG = 0x1C;
 constexpr uint8_t REG_FIFO_EN = 0x23;
@@ -58,9 +59,38 @@ void Mpu6050::resetFifo() {
   readReg(REG_INT_STATUS);  // clear a stale overflow flag
 }
 
+// If the ESP32 resets in the middle of a read, the sensor can be left holding SDA low,
+// waiting for clock pulses: every transaction then fails until it gives up. The standard
+// cure is to clock SCL by hand until SDA is released, then send a STOP.
+static void clearBus(int sda, int scl) {
+  pinMode(sda, INPUT_PULLUP);
+  pinMode(scl, OUTPUT_OPEN_DRAIN);
+  digitalWrite(scl, HIGH);
+  delayMicroseconds(10);
+  for (int i = 0; i < 9 && digitalRead(sda) == LOW; i++) {
+    digitalWrite(scl, LOW);
+    delayMicroseconds(10);
+    digitalWrite(scl, HIGH);
+    delayMicroseconds(10);
+  }
+  pinMode(sda, OUTPUT_OPEN_DRAIN);  // STOP: SDA low -> high while SCL is high
+  digitalWrite(sda, LOW);
+  delayMicroseconds(10);
+  digitalWrite(sda, HIGH);
+  delayMicroseconds(10);
+}
+
 bool Mpu6050::begin(int sda, int scl, uint32_t hz) {
+  Wire.end();
+  clearBus(sda, scl);
   Wire.begin(sda, scl, hz);
-  who_ = readReg(REG_WHO_AM_I);
+  Wire.setTimeOut(50);
+  // the sensor can need a moment after power-up: try a few times before giving up
+  for (int i = 0; i < 5; i++) {
+    who_ = readReg(REG_WHO_AM_I);
+    if (who_ == 0x68 || who_ == 0x70 || who_ == 0x72 || who_ == 0x98) break;
+    delay(30);
+  }
   if (who_ != 0x68) {
     // 0x70/0x72/0x98 are MPU-6500/9250-family clones sold as "MPU-6050";
     // the registers used here are compatible.
@@ -75,6 +105,9 @@ bool Mpu6050::begin(int sda, int scl, uint32_t hz) {
   writeReg(REG_CONFIG, MPU_DLPF_CFG);
   writeReg(REG_GYRO_CONFIG, MPU_GYRO_FS_SEL << 3);
   writeReg(REG_ACCEL_CONFIG, MPU_ACCEL_FS_SEL << 3);
+  // MPU-6500-family clones have a separate accelerometer low-pass filter that defaults to
+  // ~218 Hz (would alias at 100 Hz sampling): set it to 41 Hz like the gyro's.
+  if (who_ != 0x68) writeReg(REG_ACCEL_CONFIG2, 0x03);
   writeReg(REG_INT_ENABLE, INT_FIFO_OFLOW);  // only latches the status bit; INT pin unused
   resetFifo();
   return true;
@@ -88,12 +121,20 @@ int Mpu6050::read(ImuSample* out, int max, bool* overflow) {
     return 0;
   }
   uint8_t c[2];
-  if (!readBytes(REG_FIFO_COUNTH, c, 2)) return 0;
-  int count = (c[0] << 8) | c[1];
-  if (count % BYTES_PER_SAMPLE) {  // misaligned (partial write / glitch): resync
-    resetFifo();
-    *overflow = true;
-    return 0;
+  if (!readBytes(REG_FIFO_COUNTH, c, 2)) return 0;  // bus glitch: try again next loop
+  int count = ((c[0] & 0x1F) << 8) | c[1];
+  // A count caught while a sample is being written is not a multiple of 12: read only the
+  // complete samples. Only if it stays misaligned (data really out of step) do we resync.
+  static uint8_t misaligned = 0;
+  if (count % BYTES_PER_SAMPLE) {
+    if (++misaligned >= 4) {
+      misaligned = 0;
+      resetFifo();
+      *overflow = true;
+      return 0;
+    }
+  } else {
+    misaligned = 0;
   }
   int n = count / BYTES_PER_SAMPLE;
   if (n > max) n = max;
@@ -101,7 +142,13 @@ int Mpu6050::read(ImuSample* out, int max, bool* overflow) {
   uint8_t buf[CHUNK_SAMPLES * BYTES_PER_SAMPLE];
   while (got < n) {
     int k = n - got < CHUNK_SAMPLES ? n - got : CHUNK_SAMPLES;
-    if (!readBytes(REG_FIFO_R_W, buf, k * BYTES_PER_SAMPLE)) break;
+    if (!readBytes(REG_FIFO_R_W, buf, k * BYTES_PER_SAMPLE)) {
+      // a burst read failed part-way: we can't know how many bytes left the FIFO, so the
+      // sample boundaries are lost - start clean rather than feed shifted data to the FFT
+      resetFifo();
+      *overflow = true;
+      return got;
+    }
     for (int i = 0; i < k; i++) {
       const uint8_t* b = buf + i * BYTES_PER_SAMPLE;  // big-endian, register order
       ImuSample& s = out[got + i];
