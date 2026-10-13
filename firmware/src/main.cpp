@@ -46,6 +46,14 @@ static float winG[3][WINDOW_N], winA[3][WINDOW_N];  // linearised copy for analy
 static uint32_t windowCount = 0;
 static dsp::WindowResult lastResult;  // for the serial status line
 
+// live raw stream for the dashboard's real-time comparison (only while requested)
+static bool rawOn = false, rawGap = false;
+static uint16_t rawIndex = 0;            // running sample counter (wraps)
+static uint8_t rawPkt[RAW_HEADER_BYTES + RAW_MAX_PER_PACKET * RAW_SAMPLE_BYTES];
+static int rawCount = 0;
+static uint16_t rawFirst = 0;
+static void flushRaw();
+
 // epoch bookkeeping
 static uint32_t epochStartMs = 0;
 static bool buttonInEpoch = false, testInEpoch = false, alertInEpoch = false;
@@ -232,6 +240,7 @@ static void analyzeWindow() {
   p.activity_mg = clampTo<uint16_t>(r.activity_mg);
   p.dom_cHz = clampTo<uint16_t>(r.dom_freq_hz * 100);
   p.battery_pct = batteryPct;
+  flushRaw();  // the app must hold every sample of this window before it gets the band's verdict
   ble::sendLive(p);
 
   if (r.confirmed)
@@ -244,7 +253,30 @@ static void analyzeWindow() {
     Serial.printf("[beat] %.2f Hz, lever %.0f cm: checking it's steady...\n", r.freq_hz, r.lever_eff_m * 100);
 }
 
+static void flushRaw() {
+  if (!rawCount) return;
+  rawPkt[0] = rawFirst & 0xFF;
+  rawPkt[1] = rawFirst >> 8;
+  rawPkt[2] = rawCount;
+  rawPkt[3] = rawGap ? 1 : 0;
+  ble::sendRaw(rawPkt, RAW_HEADER_BYTES + rawCount * RAW_SAMPLE_BYTES);
+  rawCount = 0;
+  rawGap = false;
+}
+
+static void streamRaw(const ImuSample& s) {
+  uint16_t idx = rawIndex++;
+  if (!rawOn || !ble::connected()) return;
+  int cap = (ble::peerMtu() - 3 - RAW_HEADER_BYTES) / RAW_SAMPLE_BYTES;
+  cap = cap < 1 ? 1 : (cap > RAW_MAX_PER_PACKET ? RAW_MAX_PER_PACKET : cap);
+  if (rawCount == 0) rawFirst = idx;
+  int16_t v[6] = {s.ax, s.ay, s.az, s.gx, s.gy, s.gz};
+  memcpy(rawPkt + RAW_HEADER_BYTES + rawCount * RAW_SAMPLE_BYTES, v, RAW_SAMPLE_BYTES);  // little-endian
+  if (++rawCount >= cap) flushRaw();
+}
+
 static void pushSample(const ImuSample& s) {
+  streamRaw(s);
   float g[3] = {s.gx * kGyroToRads, s.gy * kGyroToRads, s.gz * kGyroToRads};
   float a[3] = {s.ax * kAccelToG, s.ay * kAccelToG, s.az * kAccelToG};
   for (int k = 0; k < 3; k++) {
@@ -273,16 +305,24 @@ static void pushSample(const ImuSample& s) {
   }
 }
 
+// Throw away the partial analysis window; the next one starts with the next sample. The raw
+// stream marks the restart so the app restarts its own copy at exactly the same sample.
+static void restartWindow() {
+  ringFilled = 0;
+  sinceHop = 0;
+  gapPending = true;
+  detector.reset();
+  flushRaw();
+  rawGap = true;
+}
+
 static void serviceImu() {
   static ImuSample buf[64];
   bool overflow = false;
   int n = imu.read(buf, 64, &overflow);
   if (overflow) {
     // data was missing (or mis-scaled after a sensor reboot): restart the window so no analysis spans it
-    ringFilled = 0;
-    sinceHop = 0;
-    gapPending = true;
-    detector.reset();
+    restartWindow();
     Serial.println("[imu] data gap, analysis window restarted");
   }
   for (int i = 0; i < n; i++) pushSample(buf[i]);
@@ -463,6 +503,16 @@ static void handleCommand(const Command& c) {
     case CMD_ALERT_DISMISS:
       wearoff.dismiss();
       break;
+    case CMD_RAW_STREAM:
+      if (c.len >= 2) {
+        rawOn = c.data[1] != 0;
+        rawCount = 0;
+        // start both analyses from the same sample, so the app can check its copy of the
+        // detector against the band's own verdict window by window
+        if (rawOn) restartWindow();
+        Serial.printf("[raw] stream %s (MTU %u)\n", rawOn ? "on" : "off", ble::peerMtu());
+      }
+      break;
     case CMD_ERASE:
       if (c.len >= 3 && c.data[1] == 0xA5 && c.data[2] == 0x5A) {
         store.eraseAll();
@@ -472,6 +522,7 @@ static void handleCommand(const Command& c) {
       break;
     case 0xFF:  // internal: link dropped
       syncing = awaitingAck = false;
+      rawOn = false;
       batchLen = batchIdx = 0;
       if (testType) finishTest(TEST_STATE_ABORTED);
       return;

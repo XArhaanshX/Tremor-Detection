@@ -14,6 +14,7 @@
 #define UUID_CONTROL "d2e60004-ed8b-45e3-b151-051e61e017ff"  // write: commands below
 #define UUID_STATUS  "d2e60005-ed8b-45e3-b151-051e61e017ff"  // read/notify: StatusPacket
 #define UUID_TEST    "d2e60006-ed8b-45e3-b151-051e61e017ff"  // notify: TestPacket
+#define UUID_RAW     "d2e60007-ed8b-45e3-b151-051e61e017ff"  // notify: raw samples, only while CMD_RAW_STREAM is on
 
 // ---- Control commands (app -> band) ----
 enum : uint8_t {
@@ -26,6 +27,7 @@ enum : uint8_t {
   CMD_DOSE       = 0x21,  // [cmd, u32 unix_seconds]  a dose logged in the app
   CMD_SET_WEAROFF = 0x22, // [cmd, u16 warn_after_min, u16 typical_min]  learned in the app; 0 = unknown
   CMD_ALERT_DISMISS = 0x23, // [cmd]  patient acknowledged the wearing-off warning
+  CMD_RAW_STREAM = 0x24,  // [cmd, u8 on]  stream the exact samples the band analyses (live comparison)
   CMD_ERASE      = 0x7F,  // [cmd, 0xA5, 0x5A]  wipe stored records
 };
 
@@ -83,6 +85,15 @@ enum : uint8_t {
   MARK_BATCH_END = 0xB0,  // [0xB0, u32 last_seq_sent]  -> app should ACK
   MARK_SYNC_DONE = 0xD0,  // [0xD0, u32 acked_seq]      -> nothing more pending
 };
+
+// Raw stream packet (UUID_RAW), sized to the negotiated MTU:
+//   u16 first_index   index of the first sample (low 16 bits of a running sample counter)
+//   u8  count         samples in this packet (1..RAW_MAX_PER_PACKET)
+//   u8  flags         bit0 = gap: the band restarted its analysis window before this packet
+//   count x { i16 ax, ay, az, gx, gy, gz }  raw sensor units (ACCEL_LSB_PER_G, GYRO_LSB_PER_DPS)
+#define RAW_HEADER_BYTES 4
+#define RAW_SAMPLE_BYTES 12
+#define RAW_MAX_PER_PACKET 8
 
 #pragma pack(push, 1)
 

@@ -22,5 +22,7 @@ void sendStatus(const StatusPacket& p);  // also updates the readable value
 void sendTest(const void* data, size_t len);
 void sendRecord(const EpochRecord& r);
 void sendMarker(uint8_t kind, uint32_t value);
+void sendRaw(const uint8_t* data, size_t len);
+uint16_t peerMtu();  // negotiated ATT MTU of the connected app (23 if unknown)
 
 }  // namespace ble

@@ -11,10 +11,14 @@ NimBLECharacteristic* g_live = nullptr;
 NimBLECharacteristic* g_records = nullptr;
 NimBLECharacteristic* g_status = nullptr;
 NimBLECharacteristic* g_test = nullptr;
+NimBLECharacteristic* g_raw = nullptr;
+NimBLEServer* g_server = nullptr;
+volatile uint16_t g_conn = 0xFFFF;
 QueueHandle_t g_cmds = nullptr;
 volatile bool g_connected = false;
 
 class ServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer*, ble_gap_conn_desc* desc) override { g_conn = desc->conn_handle; }
   void onConnect(NimBLEServer*) override {
     g_connected = true;
     Serial.println("[ble] connected");
@@ -48,7 +52,9 @@ void notify(NimBLECharacteristic* chr, const void* data, size_t len) {
 void begin(const char* name) {
   g_cmds = xQueueCreate(16, sizeof(Command));
   NimBLEDevice::init(name);
+  NimBLEDevice::setMTU(185);  // lets the live raw stream pack 8 samples per notification
   NimBLEServer* server = NimBLEDevice::createServer();
+  g_server = server;
   server->setCallbacks(new ServerCallbacks());
 
   NimBLEService* svc = server->createService(UUID_SERVICE);
@@ -56,6 +62,7 @@ void begin(const char* name) {
   g_records = svc->createCharacteristic(UUID_RECORDS, NIMBLE_PROPERTY::NOTIFY);
   g_status = svc->createCharacteristic(UUID_STATUS, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
   g_test = svc->createCharacteristic(UUID_TEST, NIMBLE_PROPERTY::NOTIFY);
+  g_raw = svc->createCharacteristic(UUID_RAW, NIMBLE_PROPERTY::NOTIFY);
   NimBLECharacteristic* control =
       svc->createCharacteristic(UUID_CONTROL, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   control->setCallbacks(new ControlCallbacks());
@@ -87,6 +94,14 @@ void sendRecord(const EpochRecord& r) { notify(g_records, &r, sizeof r); }
 void sendMarker(uint8_t kind, uint32_t value) {
   SyncMarker m{kind, value};
   notify(g_records, &m, sizeof m);
+}
+
+void sendRaw(const uint8_t* data, size_t len) { notify(g_raw, data, len); }
+
+uint16_t peerMtu() {
+  if (!g_server || !g_connected || g_conn == 0xFFFF) return 23;
+  uint16_t m = g_server->getPeerMTU(g_conn);
+  return m ? m : 23;
 }
 
 }  // namespace ble
