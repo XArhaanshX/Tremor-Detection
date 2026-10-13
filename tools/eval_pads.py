@@ -11,14 +11,18 @@ Only subject-level diagnosis labels exist, so we evaluate:
                          and subject-level "any rest tremor detected";
   * the effective-lever-arm distribution of beats in PD-at-rest vs HC-moving windows.
 
-Three decision rules are compared on IDENTICAL per-window metrics produced by the
-firmware's own DSP code (tools/dsp_cli.cpp), so the only difference is the rule:
-  spectral       strong + narrow + steady + consistent 4-6 Hz beat (gyro-only, ELENA-style)
-  spectral+gate  spectral, but windows with voluntary movement (0.5-3 Hz) are discarded
-                 (the usual fix, e.g. the 2025 open-source gyroscope detector)
-  ours           spectral + kinematic attribution (effective lever arm + axis linearity)
+Four decision rules are compared on IDENTICAL per-window features produced by the
+firmware's own DSP code (tools/dsp_cli.cpp), so the only difference is the rule. They
+mirror ALGORITHMS in dashboard/js/dsp.js:
+  bandpower  >= 50 % of 1-15 Hz power in 3.5-7.5 Hz, amplitude >= 0.10 rad/s (classic baseline)
+  spectral   strong + narrow + steady 4-6 Hz peak, gyro only (ELENA-style)
+  gated      strong + narrow 3-7 Hz peak, windows with 0.5-3 Hz arm movement discarded
+             (after Timmermans et al. 2025)
+  ours       spectral + effective lever arm <= 15 cm (ELA)
+Each needs two windows in a row at the same frequency.
 
-Usage: eval_pads.py --pads DIR --cli PATH/TO/dsp_cli [--out docs/results/pads]
+Writes docs/results/pads/REPORT.md and dashboard/data/pads_summary.json (the dashboard's
+Algorithms tab). Usage: eval_pads.py --pads DIR --cli PATH/TO/dsp_cli [--out docs/results/pads]
 """
 import argparse, json, os, subprocess, sys
 from collections import defaultdict
@@ -66,10 +70,21 @@ def run_cli(cli, path, hop):
     return pd.read_csv(BytesIO(out))
 
 
-def consistent(df, flag):
+ALGOS = {  # id -> (candidate rule, reported-frequency column); keep in sync with dashboard/js/dsp.js
+    "bandpower": (lambda d: (d.bp_ratio >= 0.5) & (d.bp_omega >= 0.10), "bp_freq"),
+    "spectral": (lambda d: (d.freq > 0) & (d.ratio >= 0.40) & (d.omega >= 0.10) & (d.steady >= 0.5), "freq"),
+    "gated": (lambda d: (d.p37_freq > 0) & (d.p37_ratio >= 0.40) & (d.p37_omega >= 0.10) & (d.lowband < GATE_LOWBAND), "p37_freq"),
+    "ours": (None, "freq"),
+}
+NAMES = {"bandpower": "Band-power threshold", "spectral": "Spectral peak, gyro only",
+         "gated": "Movement-gated (after Timmermans 2025)", "ours": "Ours: lever-arm check (ELA)"}
+BANDS = {"bandpower": (3.5, 7.5), "spectral": (4, 6), "gated": (3, 7), "ours": (4, 6)}
+
+
+def consistent(df, flag, freq="freq"):
     """Firmware-style consistency: this window AND the previous one pass, same frequency."""
     f = df[flag].to_numpy()
-    fr = df["freq"].to_numpy()
+    fr = df[freq].to_numpy()
     out = np.zeros(len(df), bool)
     for i in range(1, len(df)):
         out[i] = f[i] and f[i - 1] and abs(fr[i] - fr[i - 1]) <= 1.0
@@ -82,6 +97,7 @@ def main():
     ap.add_argument("--cli", required=True)
     ap.add_argument("--out", default="docs/results/pads")
     ap.add_argument("--hop", type=int, default=100)
+    ap.add_argument("--summary", default="dashboard/data/pads_summary.json")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
@@ -105,12 +121,14 @@ def main():
         except Exception as e:  # noqa
             print("skip", fn, e, file=sys.stderr)
             return None
-        beat = (df["freq"] > 0) & (df["ratio"] >= 0.40) & (df["omega"] >= 0.10) & (df["steady"] >= 0.5)
-        df["beat"] = beat
-        df["spectral"] = consistent(df, "beat")
-        df["gated_beat"] = beat & (df["lowband"] < GATE_LOWBAND)
-        df["spectral_gate"] = consistent(df, "gated_beat")
-        df["ours"] = df["confirmed"].astype(bool)
+        df["beat"] = ALGOS["spectral"][0](df)
+        for aid, (rule, fcol) in ALGOS.items():
+            if rule is None:
+                df[aid] = df["confirmed"].astype(bool)
+            else:
+                df[f"{aid}_cand"] = rule(df)
+                df[aid] = consistent(df, f"{aid}_cand", fcol)
+            df[f"{aid}_f"] = np.where(df[aid], df[fcol], np.nan)
         df["subject"] = sid
         df["task"] = task
         df["wrist"] = wrist
@@ -127,7 +145,7 @@ def main():
     W.to_csv(os.path.join(args.out, "windows.csv"), index=False)
     print(f"{len(W)} analysis windows")
 
-    rules = ["spectral", "spectral_gate", "ours"]
+    rules = list(ALGOS)
     lines = []
     P = lines.append
     P("# PADS evaluation\n")
@@ -235,6 +253,57 @@ def main():
     with open(os.path.join(args.out, "REPORT.md"), "w") as f:
         f.write(report + "\n")
     print(report)
+    write_summary(W, files, patients, args.summary)
+
+
+def write_summary(W, files, patients, path):
+    """Compact numbers for the dashboard's Algorithms tab (dashboard/data/pads_summary.json)."""
+    bins = np.round(np.arange(2.0, 9.01, 0.25), 2)
+    hist = lambda v: np.histogram(v[(v >= bins[0]) & (v < bins[-1])], bins=bins)[0].tolist()
+    q = lambda v: {"n": int(len(v)), "median": round(float(np.median(v)), 2) if len(v) else None,
+                   "q1": round(float(np.percentile(v, 25)), 2) if len(v) else None,
+                   "q3": round(float(np.percentile(v, 75)), 2) if len(v) else None}
+    rest = W.task.isin(REST)
+    pd_ = W.group == "PD"
+    hc = W.group == "HC"
+    td = pd_ & (W.subtype == "tremor-dominant")
+    ar = pd_ & (W.subtype == "akinetic-rigid")
+    # Algorithm-independent "what frequency is Parkinsonian tremor here": strong, narrow dominant
+    # oscillations in tremor-dominant patients at rest (same strength rules, any frequency 2-9 Hz).
+    strong = (W.dom_ratio >= 0.4) & (W.dom_omega >= 0.10) & (W.dom >= 2) & (W.dom < 9)
+    td_beats = W.dom[td & rest & strong].to_numpy()
+    hc_beats = W.dom[hc & W.task.isin(KINETIC) & strong].to_numpy()
+    pct = lambda m: round(100 * float(m.mean()), 3) if m.size else None
+    subj = lambda sel, a: round(100 * float(W[sel & rest].groupby("subject")[a].any().mean()), 1)
+    out = {
+        "dataset": {
+            "name": "PADS - Parkinson's Disease Smartwatch dataset (PhysioNet)", "url": "https://physionet.org/content/parkinsons-disease-smartwatch/1.0.0/",
+            "license": "CC BY-NC-SA 4.0", "recordings": len(files), "windows": int(len(W)),
+            "subjects": {g: int(n) for g, n in W.groupby("group")["subject"].nunique().items()},
+            "pdSubtypeSubjects": {k: int(v) for k, v in W[pd_].groupby("subtype")["subject"].nunique().items()},
+        },
+        "bins": bins.tolist(),
+        "observed": {"tdRest": {**q(td_beats), "hist": hist(td_beats)}, "hcMoving": {**q(hc_beats), "hist": hist(hc_beats)}},
+        "algorithms": {},
+    }
+    for a in ALGOS:
+        f = W[f"{a}_f"]
+        lo, hi = BANDS[a]
+        tdf = f[td & rest].dropna().to_numpy()
+        out["algorithms"][a] = {
+            "name": NAMES[a], "band": [lo, hi],
+            "hcAllPct": pct(W[a][hc]), "hcRestPct": pct(W[a][hc & rest]),
+            "hcPosturalPct": pct(W[a][hc & W.task.isin(POSTURAL)]), "hcKineticPct": pct(W[a][hc & W.task.isin(KINETIC)]),
+            "pdRestPct": pct(W[a][pd_ & rest]), "tdRestPct": pct(W[a][td & rest]), "arRestPct": pct(W[a][ar & rest]),
+            "mixedRestPct": pct(W[a][pd_ & (W.subtype == "mixed") & rest]), "ddRestPct": pct(W[a][(W.group == "DD") & rest]),
+            "tdSubjectsPct": subj(td, a), "arSubjectsPct": subj(ar, a), "hcSubjectsPct": subj(hc, a),
+            "coveragePct": round(100 * float(((td_beats >= lo) & (td_beats <= hi)).mean()), 1) if len(td_beats) else None,
+            "freqTdRest": {**q(tdf), "hist": hist(tdf)},
+        }
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump(out, fh, indent=1)
+    print("wrote", path)
 
 
 if __name__ == "__main__":
