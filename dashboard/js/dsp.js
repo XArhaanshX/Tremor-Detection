@@ -238,48 +238,77 @@ export function analyzeRecording(s, cfg = {}) {
 }
 
 // ---------------------------------------------------------------- the four detectors compared
-// Each rule turns the same window features into a yes/no + the frequency it reports.
-// Mirrored in tools/eval_pads.py (ALGORITHMS) for the real-patient numbers.
+// Each rule turns the same window features into a yes/no + the frequency it reports, and says
+// in words why it said no (shown live). Mirrored in tools/eval_pads.py (ALGORITHMS).
+const P = (v) => `${Math.round(100 * v)}%`;
+const R = (v) => `${v.toFixed(2)} rad/s`;
 export const ALGORITHMS = [
   {
     id: 'bandpower', name: 'Band-power threshold', short: 'Band power', color: '--algo-1',
     band: [3.5, 7.5], origin: 'Classic baseline (fixed threshold on tremor-band power)',
     rule: '≥ 50 % of 1–15 Hz power in 3.5–7.5 Hz, amplitude ≥ 0.10 rad/s, 2 windows in a row',
     cand: (w) => w.bp_ratio >= 0.5 && w.bp_omega >= 0.1, freq: (w) => w.bp_freq,
+    why: (w) => (w.bp_ratio < 0.5 ? `only ${P(w.bp_ratio)} of the motion is in 3.5–7.5 Hz (needs 50%)`
+      : w.bp_omega < 0.1 ? `too faint: ${R(w.bp_omega)} (needs 0.10)` : null),
   },
   {
     id: 'spectral', name: 'Spectral peak, gyro only', short: 'Spectral peak', color: '--algo-2',
     band: [4, 6], origin: 'FFT peak detectors (ELENA-style; our own detector without the lever check)',
     rule: 'narrow, strong, steady 4–6 Hz peak, 2 windows in a row at the same frequency',
     cand: (w) => w.freq_hz > 0 && w.ratio >= 0.4 && w.omega_amp >= 0.1 && w.steadiness >= 0.5, freq: (w) => w.freq_hz,
+    why: (w) => (!(w.freq_hz > 0) ? 'no peak between 4 and 6 Hz'
+      : w.ratio < 0.4 ? `peak holds only ${P(w.ratio)} of the motion (needs 40%)`
+      : w.omega_amp < 0.1 ? `peak too faint: ${R(w.omega_amp)} (needs 0.10)`
+      : w.steadiness < 0.5 ? `beat not steady (${w.steadiness.toFixed(2)}, needs 0.50)` : null),
   },
   {
     id: 'gated', name: 'Movement-gated (after Timmermans 2025)', short: 'Movement-gated', color: '--algo-3',
     band: [3, 7], gate: [0.5, 3], origin: 'Open-source free-living detector: peak 3–7 Hz, windows with arm movement discarded',
     rule: 'narrow, strong 3–7 Hz peak, and NO arm movement in 0.5–3 Hz (gate < 0.4 rad/s)',
     cand: (w) => w.p37_freq > 0 && w.p37_ratio >= 0.4 && w.p37_omega >= 0.1 && w.lowband_omega < 0.4, freq: (w) => w.p37_freq,
+    why: (w) => (!(w.p37_freq > 0) ? 'no peak between 3 and 7 Hz'
+      : w.p37_ratio < 0.4 ? `peak holds only ${P(w.p37_ratio)} of the motion (needs 40%)`
+      : w.p37_omega < 0.1 ? `peak too faint: ${R(w.p37_omega)} (needs 0.10)`
+      : w.lowband_omega >= 0.4 ? `arm is moving (${R(w.lowband_omega)} at 0.5–3 Hz): window skipped` : null),
   },
   {
     id: 'ours', name: 'Ours: lever-arm check (ELA)', short: 'Ours (ELA)', color: '--algo-4',
     band: [4, 6], leverCm: 15, origin: 'This project: spectral peak + is the beat made at the wrist?',
     rule: 'spectral peak AND effective lever arm accel ÷ (gyro × 2πf) ≤ 15 cm',
     cand: (w) => w.candidate, freq: (w) => w.freq_hz,
+    why: (w) => (w.gap ? 'first window after a data gap (not judged)'
+      : !(w.freq_hz > 0) ? 'no peak between 4 and 6 Hz'
+      : w.ratio < 0.4 ? `peak holds only ${P(w.ratio)} of the motion (needs 40%)`
+      : w.omega_amp < 0.1 ? `peak too faint: ${R(w.omega_amp)} (needs 0.10)`
+      : w.steadiness < 0.5 ? `beat not steady (${w.steadiness.toFixed(2)}, needs 0.50)`
+      : w.arm_driven ? `beat made by the whole arm: lever ${Math.round(100 * w.lever_eff_m)} cm > 15 cm` : null),
   },
 ];
 
-// Apply all four rules to a window sequence (same 2-in-a-row consistency for every rule).
+// One step of all four rules for the next window: the same 2-in-a-row consistency for every
+// rule (ours: the band's own confirmation). Used for recordings, the benchmark and live.
+export function makeDecider() {
+  const st = Object.fromEntries(ALGORITHMS.map((a) => [a.id, { prev: false, prevF: 0 }]));
+  return (w) => {
+    const out = {};
+    for (const alg of ALGORITHMS) {
+      const s = st[alg.id], c = !!alg.cand(w), f = alg.freq(w);
+      const flag = alg.id === 'ours' ? !!w.confirmed : c && s.prev && Math.abs(f - s.prevF) <= 1;
+      out[alg.id] = { flag, cand: c, freq: flag ? f : null, peak: f > 0 ? f : null,
+        why: flag ? null : c ? 'beat found: needs a 2nd matching window in a row' : alg.why(w) || 'below threshold' };
+      s.prev = c; s.prevF = f;
+    }
+    return out;
+  };
+}
+
+// Apply all four rules to a window sequence.
 export function decide(windows) {
-  const res = {};
-  for (const alg of ALGORITHMS) {
-    const flags = new Array(windows.length).fill(false), freqs = new Array(windows.length).fill(null);
-    let prev = false, prevF = 0;
-    windows.forEach((w, i) => {
-      const c = !!alg.cand(w), f = alg.freq(w);
-      flags[i] = alg.id === 'ours' ? w.confirmed : c && prev && Math.abs(f - prevF) <= 1;
-      if (flags[i]) freqs[i] = f;
-      prev = c; prevF = f;
-    });
-    res[alg.id] = { flags, freqs };
+  const step = makeDecider();
+  const res = Object.fromEntries(ALGORITHMS.map((a) => [a.id, { flags: [], freqs: [] }]));
+  for (const w of windows) {
+    const d = step(w);
+    for (const a of ALGORITHMS) { res[a.id].flags.push(d[a.id].flag); res[a.id].freqs.push(d[a.id].freq); }
   }
   return res;
 }
