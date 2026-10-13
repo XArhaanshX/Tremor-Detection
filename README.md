@@ -41,6 +41,7 @@ pio device monitor -b 115200
 # Tests
 make -C firmware/test/host        # 104 DSP checks: tremor, lever arm, hand turning, wear-off monitor
 node tools/check_protocol.mjs     # firmware structs <-> dashboard decoder
+node tools/check_dsp_js.mjs       # dashboard's JS detector == firmware C++, window by window
 node tools/test_wearoff.mjs       # 23 checks: Kaplan-Meier, censoring, slots, backtest
 node tools/test_screen_tests.mjs  # 65 checks: spiral, reaction, tracking, per-hand tapping
 
