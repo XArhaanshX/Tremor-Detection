@@ -1,5 +1,5 @@
 // Web Bluetooth link to the wristband.
-// Events: state, live, status, sync, test   (CustomEvent, data in .detail)
+// Events: state, live, status, sync, test, raw   (CustomEvent, data in .detail)
 import * as P from './protocol.js';
 
 const RETRY_MS = [2000, 4000, 8000, 15000];
@@ -78,6 +78,11 @@ export class BandConnection extends EventTarget {
     this.chr.test.addEventListener('characteristicvaluechanged', (e) => this.emit('test', P.decodeTest(e.target.value)));
     this.chr.records.addEventListener('characteristicvaluechanged', (e) => this.onRecordsPacket(e.target.value));
     for (const k of ['status', 'live', 'test', 'records']) await this.gatt(() => this.chr[k].startNotifications());
+    // raw sample stream (firmware with the live algorithm comparison); older bands lack it
+    try {
+      this.chr.raw = await svc.getCharacteristic(P.UUID.raw);
+      this.chr.raw.addEventListener('characteristicvaluechanged', (e) => this.emit('raw', P.decodeRaw(e.target.value)));
+    } catch { this.chr.raw = null; }
 
     // handshake: clock -> lever arm -> status -> start syncing stored records
     await this.write(P.cmdSetTime(Math.floor(Date.now() / 1000)));
@@ -86,6 +91,7 @@ export class BandConnection extends EventTarget {
     await this.write(P.cmdSync());
     this.retry = 0;
     this.setState('connected');
+    if (this.rawWanted) this.setRawStream(true).catch(() => {});  // resume after a reconnect
   }
 
   onStatus(s) {
@@ -161,4 +167,14 @@ export class BandConnection extends EventTarget {
   noteDose(t) { return this.state === 'connected' ? this.write(P.cmdDose(Math.floor(t / 1000))) : Promise.resolve(); }
   setWearOff(warnAfterMin, typicalMin) { return this.write(P.cmdSetWearOff(warnAfterMin, typicalMin)); }
   dismissAlert() { return this.write(P.cmdAlertDismiss()); }
+  get rawSupported() { return !!this.chr.raw; }
+  // Ask the band to stream every sample it analyses (live algorithm comparison).
+  async setRawStream(on) {
+    this.rawWanted = on;
+    if (this.state !== 'connected' || !this.chr.raw) return false;
+    if (on) await this.gatt(() => this.chr.raw.startNotifications());
+    await this.write(P.cmdRawStream(on));
+    if (!on) await this.gatt(() => this.chr.raw.stopNotifications()).catch(() => {});
+    return true;
+  }
 }

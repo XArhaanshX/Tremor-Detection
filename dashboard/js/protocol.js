@@ -7,9 +7,10 @@ export const UUID = {
   control: 'd2e60004-ed8b-45e3-b151-051e61e017ff',
   status:  'd2e60005-ed8b-45e3-b151-051e61e017ff',
   test:    'd2e60006-ed8b-45e3-b151-051e61e017ff',
+  raw:     'd2e60007-ed8b-45e3-b151-051e61e017ff',
 };
 
-export const CMD = { SET_TIME: 0x01, SYNC: 0x02, ACK: 0x03, TEST_START: 0x10, TEST_ABORT: 0x11, SET_LEVER: 0x20, DOSE: 0x21, SET_WEAROFF: 0x22, ALERT_DISMISS: 0x23, ERASE: 0x7f };
+export const CMD = { SET_TIME: 0x01, SYNC: 0x02, ACK: 0x03, TEST_START: 0x10, TEST_ABORT: 0x11, SET_LEVER: 0x20, DOSE: 0x21, SET_WEAROFF: 0x22, ALERT_DISMISS: 0x23, RAW_STREAM: 0x24, ERASE: 0x7f };
 export const TEST = { REST: 1, POSTURAL: 2, PRONSUP: 3 };
 export const TEST_STATE = { RUNNING: 1, DONE: 2, ABORTED: 3, ERROR: 4 };
 export const MARK = { BATCH_END: 0xb0, SYNC_DONE: 0xd0 };
@@ -44,6 +45,19 @@ export function decodeLive(buf) {
     domHz: v.getUint16(16, true) / 100,
     battery: pct(v.getUint8(18)),
   };
+}
+
+// Raw stream: u16 first sample index, u8 count, u8 flags (bit0 = band restarted its window
+// here), then count x i16 {ax, ay, az, gx, gy, gz} in raw sensor units.
+export const RAW_GYRO_LSB_PER_DPS = 16.4, RAW_ACCEL_LSB_PER_G = 4096;
+export function decodeRaw(buf) {
+  const v = dv(buf);
+  const count = v.getUint8(2), out = [];
+  for (let i = 0; i < count && 4 + i * 12 + 12 <= v.byteLength; i++) {
+    const o = 4 + i * 12;
+    out.push([0, 2, 4, 6, 8, 10].map((k) => v.getInt16(o + k, true)));
+  }
+  return { first: v.getUint16(0, true), gap: !!(v.getUint8(3) & 1), samples: out };
 }
 
 // Returns {kind:'record', ...} for 20-byte records, {kind:'marker', ...} for 5-byte markers.
@@ -143,4 +157,5 @@ export function cmdSetLever(mm) { const v = bytes(3); v.setUint8(0, CMD.SET_LEVE
 export function cmdDose(unixS) { const v = bytes(5); v.setUint8(0, CMD.DOSE); v.setUint32(1, unixS >>> 0, true); return v.buffer; }
 export function cmdSetWearOff(warnAfterMin, typicalMin) { const v = bytes(5); v.setUint8(0, CMD.SET_WEAROFF); v.setUint16(1, warnAfterMin, true); v.setUint16(3, typicalMin, true); return v.buffer; }
 export function cmdAlertDismiss() { return new Uint8Array([CMD.ALERT_DISMISS]).buffer; }
+export function cmdRawStream(on) { return new Uint8Array([CMD.RAW_STREAM, on ? 1 : 0]).buffer; }
 export function cmdErase() { return new Uint8Array([CMD.ERASE, 0xa5, 0x5a]).buffer; }
