@@ -1,10 +1,10 @@
 // Offline support. Network first: whenever the dashboard server is reachable you always get
 // the latest files (revalidated, never a stale HTTP-cache copy); the saved copy is only used
 // when there is no connection, so the app still opens offline.
-const CACHE = 'tremorband-v15';
+const CACHE = 'tremorband-v16';
 const SHELL = [
   './', 'index.html', 'css/style.css', 'css/screen_tests.css', 'manifest.webmanifest', 'icons/icon.svg',
-  'js/app.js', 'js/ble.js', 'js/chart.js', 'js/protocol.js', 'js/report.js', 'js/sim.js', 'js/store.js', 'js/tests.js', 'js/wearoff.js', 'js/dsp.js', 'js/bench.js', 'js/compare.js', 'data/pads_summary.json',
+  'js/app.js', 'js/ble.js', 'js/chart.js', 'js/protocol.js', 'js/report.js', 'js/sim.js', 'js/store.js', 'js/tests.js', 'js/wearoff.js', 'js/dsp.js', 'js/bench.js', 'js/compare.js', 'js/livepipe.js', 'js/versus.js', 'data/pads_summary.json',
 ];
 
 self.addEventListener('install', (e) => {
