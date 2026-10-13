@@ -63,10 +63,14 @@ export class LivePipeline {
     this.emit('reset');
   }
 
-  // What the wearer says they are doing from now on (null = not labelled).
-  setLabel(label) {
+  // What the wearer says they are doing from sample `at` on (null = not labelled).
+  setLabel(label, at = this.abs) {
     this.label = label;
-    this.labelLog.push({ from: this.abs, label });
+    this.labelLog.push({ from: at, label });
+  }
+  labelAt(a) {
+    for (let i = this.labelLog.length - 1; i >= 0; i--) if (this.labelLog[i].from <= a) return this.labelLog[i].label;
+    return null;
   }
   labelFor(start, end) {  // the label only counts if it held for the whole window
     for (let i = this.labelLog.length - 1; i >= 0; i--) {
@@ -90,6 +94,7 @@ export class LivePipeline {
         this.stats.ignored++;  // old/duplicate packet
         return;
       } else if (delta) {
+        for (let k = 0; k < Math.min(delta, this.keep); k++) this.trace[(this.abs + k) % this.keep] = NaN;  // hole
         this.abs += delta;
         this.stats.lost += delta;
         this.validFrom = this.abs;  // nothing before this can be analysed by the page
@@ -111,11 +116,12 @@ export class LivePipeline {
     while (this.rate.length && wallMs - this.rate[0][0] > 5000) this.rate.shift();
   }
 
-  samplesPerSecond() {
-    if (this.rate.length < 2) return null;
-    const span = (this.rate[this.rate.length - 1][0] - this.rate[0][0]) / 1000;
-    const n = this.rate.slice(1).reduce((p, r) => p + r[1], 0);
-    return span > 0.5 ? n / span : null;
+  // samples that arrived in the last 5 s (or since the start) per second of wall clock
+  samplesPerSecond(now = Date.now()) {
+    if (this.stats.firstWall == null) return null;
+    const span = Math.min(5000, now - this.stats.firstWall) / 1000;
+    const n = this.rate.reduce((p, r) => p + (now - r[0] < 5000 ? r[1] : 0), 0);
+    return span >= 1 ? n / span : null;
   }
 
   push(v) {
@@ -131,7 +137,7 @@ export class LivePipeline {
     if (this.session.idx.n < this.maxSession) {
       this.session.raw.push(...v);
       this.session.idx.push(a);
-      this.session.lab.push(LABEL_CODE[this.label] ?? 0);
+      this.session.lab.push(LABEL_CODE[this.labelAt(a)] ?? 0);
     }
     if (!this.aligned) return;
     const since = a - this.winStart;
