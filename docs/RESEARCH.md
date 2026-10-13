@@ -150,6 +150,23 @@ simulation so far. That is precisely what our own band recordings are for
 | spectral + movement gate (2025 open-source style) | 0.14 % | 6.16 % | 17.2 % |
 | **ours (lever + axis)** | **0.12 %** | 5.89 % | 16.0 % |
 
+### 5d. Four detectors on PADS (also shown in the dashboard's Compare tab)
+
+Same C++ features for all four; each needs two windows in a row at the same frequency.
+
+| | Band-power threshold | Spectral peak (gyro) | Movement-gated (after Timmermans 2025) | **Ours (ELA)** |
+|---|---:|---:|---:|---:|
+| Tremor-dominant PD, rest windows flagged | **26.5 %** | 18.1 % | 23.4 % | 16.0 % |
+| Healthy, all windows flagged (false alarms) | 0.92 % | 0.14 % | 0.50 % | **0.12 %** |
+| Detections per false alarm | 29 : 1 | 128 : 1 | 46 : 1 | **136 : 1** |
+| Real PD tremor frequencies inside its band | 91 % | 75 % | **98 %** | 75 % |
+
+The looser detectors catch more tremor and raise 4–8× more false alarms. **New finding:**
+real Parkinsonian rest tremor in PADS (1 024 strong beats, 52 tremor-dominant patients) has
+median 4.71 Hz, middle half 4.15–5.14 Hz, and a quarter of it lies **below 4 Hz** — outside
+the 4–6 Hz band our detector (and the spectral baseline) use. Widening our band to ~3.5–6.5 Hz
+while keeping the lever-arm gate is the obvious next experiment.
+
 ## 6. What to do next (in order)
 1. Get the sensor wired (it's still `NOT FOUND`), flash `esp32dev_rawlog`, record the
    protocol in `tools/record.py` (brushing, stirring, washing, typing, walking, drinking,
