@@ -21,7 +21,7 @@ constexpr uint8_t REG_PWR_MGMT_1 = 0x6B;
 constexpr uint8_t REG_WHO_AM_I = 0x75;
 constexpr uint8_t INT_DATA_RDY = 0x01;
 constexpr uint32_t SAMPLE_US = 1000000 / SAMPLE_HZ;
-constexpr int MAX_FILL = 5;  // interpolate up to 50 ms of lost samples; longer = real gap
+constexpr int MAX_FILL = 20;  // bridge up to 200 ms (flash writes pause the loop ~60-150 ms every 30 s); longer = real gap
 }  // namespace
 
 void Mpu6050::writeReg(uint8_t reg, uint8_t val) {
